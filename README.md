@@ -38,25 +38,30 @@ associate --help
 
 ## Quick Start
 
-### 1. Configure Neo4j Password (Global Configuration)
+### First run checklist (minimum steps)
 
-The global configuration is stored in `~/.associate/config` and is used by all repositories.
+1. Install Docker and ensure the daemon is running. The CLI uses Docker to manage the Neo4j instance.
+2. Configure a Neo4j password (required) before starting Associate:
 
 ```bash
 # Set the Neo4j password globally (required)
 associate config set --global NEO4J_PASSWORD yourpassword
-
-# Optionally configure other global settings
-associate config set --global NEO4J_URI neo4j://localhost:7687
-associate config set --global NEO4J_USERNAME neo4j
-associate config set --global NEO4J_DATABASE neo4j
 ```
 
-You can also set repository-specific config (without `--global` flag) in a local `.env` file.
+3. (Optional) Start Neo4j manually if you prefer to manage the container yourself. Associate will create and start the container automatically when needed, but for explicit control use:
 
-### 2. Initialize a Repository
+```bash
+docker run --name associate-neo4j \
+  -p 7474:7474 -p 7687:7687 \
+  -e NEO4J_AUTH=neo4j/yourpassword \
+  -d neo4j:5.25-community
 
-Navigate to any repository and initialize it:
+# Verify it's running
+docker ps --filter "name=associate-neo4j"
+# Neo4j Browser: http://localhost:7474  (login: neo4j / yourpassword)
+```
+
+4. Initialize a repository (this will register the repo and start Neo4j if needed):
 
 ```bash
 cd /path/to/your/repo
@@ -66,13 +71,13 @@ associate init
 associate init /path/to/your/repo
 ```
 
-**What happens:**
-- Neo4j container is automatically created and started (if not running)
-- Repository is registered in the graph database
-- Language detection is performed
-- A `Repo` node is created in Neo4j with isolation from other repos
+What the init command does:
+- Starts a Neo4j container (if not running) or connects to the configured instance
+- Registers the repository in the graph database
+- Performs language detection and initial scanning
+- Creates a `Repo` node to keep memories isolated per repository
 
-### 3. Save and Search Memories
+### Save and search memories (examples)
 
 ```bash
 # Save a memory/note about the codebase
@@ -86,7 +91,39 @@ associate search-memory --type architectural_decision
 associate search-memory --tags auth --limit 5
 ```
 
-### 4. Work with Multiple Repositories
+### Chat prompt examples for AI agents (save/load memories)
+
+The agent can use the MCP tools (`search_memory`, `save_memory`, `save_learning`, etc.) while planning and while executing tasks. Below are examples of how to structure prompts so the agent will both consult memory and persist findings.
+
+1) Planning prompt (before making changes)
+
+```
+You are an AI dev-assistant working on the repository at /path/to/repo. Before proposing code changes, search the project's memory for existing decisions about authentication and session management using the MCP tool `search_memory(query="authentication OR jwt OR auth")`.
+- Summarize relevant memories and list any constraints or past decisions.
+- If no matching memories exist, create a planning note using `save_memory(content=<<CONTENT>>, type="planning", tags="plan,auth").`
+
+Example tool usage (conceptual):
+- search_memory(query="authentication")
+- save_memory(content="Planning: migrate auth to centralized middleware", type="planning", tags="auth,refactor")
+```
+
+2) During-task prompt (while implementing a change)
+
+```
+During this refactor, record important discoveries and decisions.
+- If you find an architectural decision or a bug, call `save_memory` with a short title and type (e.g., "architectural_decision" or "bug_fix").
+- Before modifying authentication code, call `search_memory("authentication")` to avoid duplicating prior work.
+
+Example tool usage (conceptual):
+- search_memory(query="authentication JWT expiry")
+- save_memory(content="Discovered legacy session cookie usage in handlers; converting to JWT", type="bug_fix", tags="auth,migration")
+```
+
+Notes on prompt design:
+- Be explicit about the MCP tools to call and the order: search first, then save findings.
+- Include helpful metadata when saving (type, tags, related file path) so future searches are accurate.
+
+### Work with Multiple Repositories
 
 Since Associate uses global configuration, you can work with multiple repositories easily:
 
@@ -194,7 +231,6 @@ Configuration follows a **three-tier hierarchy**:
 | `NEO4J_DATABASE` | `neo4j` | Neo4j database name |
 | `NEO4J_IMAGE` | `neo4j:5.25-community` | Docker image to use |
 | `NEO4J_CONTAINER_NAME` | `associate-neo4j` | Docker container name |
-| `GITHUB_COPILOT_TOKEN` | *(optional)* | GitHub Copilot API token |
 
 ### Security
 

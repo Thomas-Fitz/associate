@@ -18,7 +18,6 @@ type Config struct {
 	Neo4jDatabase  string
 	Neo4jImage     string
 	ContainerName  string
-	CopilotToken   string
 }
 
 // Load reads configuration from a .env file in the specified directory.
@@ -79,7 +78,6 @@ func Load(dir string) (*Config, error) {
 		Neo4jDatabase: getValueWithFallback("NEO4J_DATABASE", "neo4j"),
 		Neo4jImage:    getValueWithFallback("NEO4J_IMAGE", "neo4j:5.25-community"),
 		ContainerName: getValueWithFallback("NEO4J_CONTAINER_NAME", "associate-neo4j"),
-		CopilotToken:  getValueWithFallbackNoDefault("GITHUB_COPILOT_TOKEN"),
 	}
 
 	// Validate required fields

@@ -100,9 +100,6 @@ var configListCmd = &cobra.Command{
 		fmt.Printf("  NEO4J_DATABASE: %s\n", cfg.Neo4jDatabase)
 		fmt.Printf("  NEO4J_IMAGE: %s\n", cfg.Neo4jImage)
 		fmt.Printf("  NEO4J_CONTAINER_NAME: %s\n", cfg.ContainerName)
-		if cfg.CopilotToken != "" {
-			fmt.Printf("  GITHUB_COPILOT_TOKEN: %s\n", maskPassword(cfg.CopilotToken))
-		}
 	},
 }
 

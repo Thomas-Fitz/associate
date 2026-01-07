@@ -45,3 +45,6 @@ go.work.sum
 .vscode/
 .idea/
 
+# copilot
+.github/
+

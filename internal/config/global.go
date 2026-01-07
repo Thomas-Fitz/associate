@@ -48,7 +48,6 @@ func LoadGlobalConfig() (*Config, error) {
 		Neo4jDatabase: getValueOrDefault(envMap, "NEO4J_DATABASE", "neo4j"),
 		Neo4jImage:    getValueOrDefault(envMap, "NEO4J_IMAGE", "neo4j:5.25-community"),
 		ContainerName: getValueOrDefault(envMap, "NEO4J_CONTAINER_NAME", "associate-neo4j"),
-		CopilotToken:  getValue(envMap, "GITHUB_COPILOT_TOKEN"),
 	}
 	
 	// Validate required fields

@@ -71,7 +71,6 @@ Use 'associate refresh-memory' to scan and index the codebase.
 ./associate config set NEO4J_CONTAINER_NAME my-neo4j
 
 # Set GitHub Copilot token (for future use)
-./associate config set GITHUB_COPILOT_TOKEN ghc_abc123xyz
 ```
 
 ### Retrieve a Single Value

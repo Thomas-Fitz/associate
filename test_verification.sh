@@ -1,5 +1,7 @@
 #!/bin/bash
 
+unset GOROOT
+
 echo "================================"
 echo "Associate - Final Verification"
 echo "================================"

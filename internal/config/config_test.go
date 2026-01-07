@@ -45,6 +45,7 @@ NEO4J_DATABASE=testdb
 func TestLoad_WithMissingEnvFile(t *testing.T) {
 	// Test: Load from directory without .env file but with required env vars
 	tmpDir := t.TempDir()
+	os.Setenv("HOME", tmpDir)
 	
 	// Set required environment variable for this test
 	oldPassword := os.Getenv("NEO4J_PASSWORD")
@@ -79,6 +80,7 @@ func TestLoad_WithMissingEnvFile(t *testing.T) {
 func TestLoad_WithMissingRequiredFields(t *testing.T) {
 	// Setup: Create .env file missing required password
 	tmpDir := t.TempDir()
+	os.Setenv("HOME", tmpDir)
 	envFile := filepath.Join(tmpDir, ".env")
 	envContent := `NEO4J_URI=neo4j://localhost:7687
 NEO4J_USERNAME=testuser

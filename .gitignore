@@ -31,3 +31,27 @@ go.work.sum
 # .idea/
 # .vscode/
 
+# macOS
+.DS_Store
+
+# Build output
+/associate
+/bin/
+
+# Local environment files
+.env
+.env.local
+.env.*.local
+
+# Global associate config directory
+.associate/
+
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+
+# IDEs
+.vscode/
+.idea/
+

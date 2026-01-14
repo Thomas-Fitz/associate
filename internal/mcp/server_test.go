@@ -63,9 +63,9 @@ func TestSearchInput_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Input validation is handled by the MCP framework via jsonschema
-			if tt.input.Query == "" && tt.valid {
-				// Empty queries are allowed but return no results
-			}
+			// Empty queries are allowed but return no results
+			_ = tt.input
+			_ = tt.valid
 		})
 	}
 }

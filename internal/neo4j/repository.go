@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/fitz/associate/internal/models"
@@ -179,8 +180,8 @@ RETURN m
 	// Create relationships
 	for _, rel := range relationships {
 		if err := r.createRelationship(ctx, session, mem.ID, rel.ToID, rel.Type); err != nil {
-			// Log but don't fail - the node was created
-			fmt.Printf("warning: failed to create relationship: %v\n", err)
+			// Log to stderr - stdout is reserved for MCP protocol in stdio mode
+			fmt.Fprintf(os.Stderr, "warning: failed to create relationship: %v\n", err)
 		}
 	}
 
@@ -233,7 +234,8 @@ RETURN m
 	// Create new relationships
 	for _, rel := range newRelationships {
 		if err := r.createRelationship(ctx, session, id, rel.ToID, rel.Type); err != nil {
-			fmt.Printf("warning: failed to create relationship: %v\n", err)
+			// Log to stderr - stdout is reserved for MCP protocol in stdio mode
+			fmt.Fprintf(os.Stderr, "warning: failed to create relationship: %v\n", err)
 		}
 	}
 
@@ -316,7 +318,7 @@ func getString(props map[string]any, key string) string {
 }
 
 func metadataToJSON(m map[string]string) string {
-	if m == nil || len(m) == 0 {
+	if len(m) == 0 {
 		return ""
 	}
 	b, err := json.Marshal(m)

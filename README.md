@@ -14,37 +14,54 @@ Associate allows AI agents to store, search, and connect information as they wor
 
 ## Quick Start
 
-### Docker (Recommended)
+### MCP Client Configuration
+
+This project implements an MCP server that can be used by local agents (Copilot, Copilot CLI, Claude Desktop, Cursor, etc.). Two transport modes are supported:
+
+| Transport | Use Case | How to Configure |
+|-----------|----------|------------------|
+| **stdio** | IDE integrations (VS Code, Cursor, Claude Desktop) | Direct `docker run` command |
+| **HTTP** | Copilot CLI, remote access, multi-client | `docker-compose up -d` |
+
+#### Option A - stdio Transport (Recommended for IDEs)
+
+The simplest approach uses `docker run` directly. First, ensure the DB container is running:
 
 ```bash
-# Start Neo4j and the Associate server
-docker-compose up -d
-
-# The MCP server will be available at http://localhost:8080
-
-# The Neo4j server will be available at http://localhost:7474
+docker-compose up -d neo4j
 ```
 
-### MCP Client Configuration Options
+Then configure your MCP client to launch Associate via Docker:
 
-This project implements an MCP server that can be used by local agents (Copilot, Copilot CLI, Claude, etc.). Two common transport modes are supported:
+**VS Code / Cursor / Claude Desktop:**
 
-- Stdio/Command (recommended): the MCP server can be run as a command that a client launches and communicates with over stdin/stdout
-- HTTP: The MCP server listens at http://localhost:8080
-
-
-#### Option A - IDE Integration with stdio (Recommended)
-
-1. Start the Associate server from the repo
-
-```bash
-docker compose up -d
+```json
+{
+  "servers": {
+    "associate": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "--network", "associate_default",
+        "-e", "NEO4J_URI=bolt://neo4j:7687",
+        "associate-associate"
+      ]
+    }
+  }
+}
 ```
 
-2. In VS Code, add an MCP server entry that points at the correct mcp-stdio scrpit (.sh for Unix, .ps1 for Windows).
+This configuration:
+- Uses `-i` for interactive stdin/stdout (required for stdio transport)
+- Uses `--rm` for automatic cleanup
+- Connects to the DB container via Docker network
+- Waits for DB automatically (built-in retry logic)
+
+**Alternative: Using Helper Scripts**
+
+For convenience, wrapper scripts to have your IDE start the DB container are provided in `scripts/`:
 
 Unix:
-
 ```json
 {
   "mcpServers": {
@@ -55,47 +72,41 @@ Unix:
 }
 ```
 
-Powershell (Windows):
-
+Windows PowerShell:
 ```json
 {
-	"servers": {
-		"associate": {
-			"type": "stdio",
-			"command": "powershell",
-			"args": ["-ExecutionPolicy","Bypass","-File","/path/to/associate/scripts/mcp-stdio/mcp-stdio.ps1"]
-		}
-	},
-	"inputs": []
-}
-```
-
-The script automatically:
-- Starts Neo4j if not already running
-- Runs the associate container in stdio mode
-- Routes MCP protocol messages through stdin/stdout
-
-#### Option B - Github Copilot CLI
-
-Support for stdio is limited in Copilot CLI as of 0.0.377. Use HTTP if you run into problems.
-
-Example HTTP config:
-
-```json
-// ~/.copilot/mcp-config.json
-{
-  "mcpServers": {
+  "servers": {
     "associate": {
-      "type": "http",
-      "url": "http://localhost:8080",
-      "headers": {},
-      "tools": [
-        "*"
-      ]
+      "type": "stdio",
+      "command": "powershell",
+      "args": ["-ExecutionPolicy", "Bypass", "-File"  "\\path\\to\\associate\\scripts\\mcp-stdio.ps1"]
     }
   }
 }
 ```
+
+#### Option B - HTTP Transport
+
+For HTTP mode, start the full stack with docker-compose:
+
+```bash
+docker-compose up -d
+```
+
+Then configure your MCP client to connect via HTTP:
+
+```json
+{
+  "mcpServers": {
+    "associate": {
+      "type": "http",
+      "url": "http://localhost:8080"
+    }
+  }
+}
+```
+
+**Note:** Copilot CLI works best with HTTP transport.
 
 ### Prompting & AGENTS.md
 
@@ -113,6 +124,9 @@ Associate tools can be triggered manually through prompts or by updating your AG
 
 "Use Task-type memories to track work items and their relationships to code and other tasks."
 ```
+### Memory DB Access
+
+Once the DB container is running, access the Neo4j UI in your browser at http://localhost:7474.
 
 ## MCP Tools
 

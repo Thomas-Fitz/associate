@@ -23,7 +23,7 @@ RUN apk add --no-cache ca-certificates
 
 COPY --from=builder /associate /associate
 
-# Default to HTTP mode for container
+# Default environment for Neo4j connection
 ENV NEO4J_URI=bolt://neo4j:7687
 ENV NEO4J_USERNAME=neo4j
 ENV NEO4J_PASSWORD=password
@@ -31,4 +31,6 @@ ENV NEO4J_DATABASE=neo4j
 
 EXPOSE 8080
 
-ENTRYPOINT ["/associate", "-http"]
+# Default to stdio mode for MCP client connections
+# Use docker-compose or -http flag for HTTP server mode
+ENTRYPOINT ["/associate"]

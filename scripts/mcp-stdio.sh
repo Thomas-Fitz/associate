@@ -1,5 +1,14 @@
 #!/bin/bash
-# MCP stdio wrapper for containerized associate
+# MCP stdio wrapper for containerized associate (OPTIONAL)
+#
+# This script is a convenience wrapper for environments where you want
+# automatic Neo4j startup. For most use cases, you can configure your
+# MCP client to use docker directly:
+#
+#   "command": "docker",
+#   "args": ["run", "-i", "--rm", "--network", "associate_default",
+#            "-e", "NEO4J_URI=bolt://neo4j:7687", "associate-associate"]
+#
 # Use this script as the "command" in MCP client configuration when you don't have Go installed.
 # It runs the associate MCP server via Docker, communicating over stdin/stdout.
 

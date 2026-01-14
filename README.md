@@ -105,59 +105,21 @@ Example HTTP config:
 
 ### Prompting & AGENTS.md
 
-Associate tools can be triggered manually through prompts or by updating your AGENTS.md. See the [prompt documentation](docs\prompts.md) for more examples.
+Associate tools can be triggered manually through prompts or by updating your AGENTS.md. See the [prompt documentation](docs\prompts.md) for examples.
 
 ```
-Before creating new memories, always search to check if similar information already exists.
+# snippets from successful AGENTS.md use cases
+"When planning, check if your memory context related to the current task."
 
-  "Check if we have any existing notes about authentication patterns in this codebase."
+"Before creating new memories, always search to check if similar information already exists."
 
-When saving new information, include comprehensive metadata, tags, and relationships to related concepts.
+"Use the PART_OF relationship to organize memories into logical project structures."
 
-  "Save this architectural decision along with the rationale that we chose JWT over session cookies for scalability."
+"As you learn, update existing memories with new relationships and information."
 
-Use the PART_OF relationship to organize memories into logical project structures.
-  "Create a project memory for 'Payment System' and note that I'm implementing Stripe integration as part of it."
+"Use Task-type memories to track work items and their relationships to code and other tasks."
 
-As you learn more context, update existing memories with new relationships and information.
-  "Update the JWT memory to reflect this dependency."
-
-Link architectural decisions to the code files they affect using REFERENCES relationships.
-  "Document the decision to use Redis for rate limiting, and link it to the middleware implementation in internal/middleware/ratelimit.go"
-
-Use Task-type memories to track work items and their relationships to code and other tasks.
-  "Create a task to add unit tests for the payment webhook handler, which depends on the Stripe integration being completed."
-
-Store repository-wide information and conventions using Repository-type memories.
-  "Document that this codebase uses the repository pattern for data access and all repositories should implement the Repository interface."
-
-Agents should build context progressively across multiple interactions within a session.
-  **Turn 1 - User:** "I'm starting to work on the notification system."
-
-  **Agent Action:** Search for existing notification-related memories
-
-  **Turn 2 - User:** "I'm implementing email notifications using SendGrid."
-
-  **Agent Action:** Create memory and search for any SendGrid configuration
-
-  **Turn 3 - User:** "This connects to the user preferences system to check if users want email notifications."
-
-  **Agent Action:** Update the notification memory with a DEPENDS_ON relationship
-
-  -----
-
-**Issue:** Not sure which relationship type to use
-- **Solution:** 
-  - RELATES_TO: General connection between concepts
-  - PART_OF: Child-to-parent hierarchy (this is part of that)
-  - REFERENCES: Citations (this refers to that documentation/decision)
-  - DEPENDS_ON: Technical dependency (this requires that to work)
-  - BLOCKS: Task gating (A must complete before B can start)
-  - FOLLOWS: Sequence ordering (A comes after B in a workflow)
-  - IMPLEMENTS: Code-to-decision link (this code implements that decision)
-
-**Issue:** Need to find all tasks in a workflow sequence
-- **Solution:** Use `get_related` with `relationship_type: "FOLLOWS"` and increase `depth` to traverse the chain
+Store repository-wide information and conventions using Repository-type memories."
 ```
 
 ## MCP Tools
@@ -200,27 +162,14 @@ Environment variables:
 | `NEO4J_PASSWORD` | `password` | Neo4j password |
 | `NEO4J_DATABASE` | `neo4j` | Neo4j database name |
 
-## Development
+## Roadmap
 
-```bash
-# Install dependencies
-make deps
-
-# Build
-make build
-
-# Run tests
-make test
-
-# Build and start with Docker
-make docker-up
-
-# View logs
-make docker-logs
-
-# Stop
-make docker-down
-```
+* Better To Do list handling including "get to do by project"
+* Improved search result weights
+* Indexing
+* Deep storage for long term memory
+* Distinct agent memory databases
+* GUI
 
 ## Troubleshooting
 

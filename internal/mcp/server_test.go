@@ -71,8 +71,6 @@ func TestSearchInput_Validation(t *testing.T) {
 }
 
 func TestAddInput_Validation(t *testing.T) {
-	tags := []string{"tag1"}
-	relatedTo := []string{"id1"}
 	tests := []struct {
 		name  string
 		input tools.AddInput
@@ -84,8 +82,8 @@ func TestAddInput_Validation(t *testing.T) {
 				Content:   "Test content",
 				Type:      "Note",
 				Metadata:  map[string]any{"key": "value"},
-				Tags:      &tags,
-				RelatedTo: &relatedTo,
+				Tags:      []string{"tag1"},
+				RelatedTo: []string{"id1"},
 			},
 			valid: true,
 		},
@@ -107,7 +105,6 @@ func TestAddInput_Validation(t *testing.T) {
 
 func TestUpdateInput_Validation(t *testing.T) {
 	content := "updated content"
-	relatedTo := []string{"other-id"}
 	tests := []struct {
 		name  string
 		input tools.UpdateInput
@@ -125,7 +122,7 @@ func TestUpdateInput_Validation(t *testing.T) {
 			name: "add relationship",
 			input: tools.UpdateInput{
 				ID:        "test-id",
-				RelatedTo: &relatedTo,
+				RelatedTo: []string{"other-id"},
 			},
 			valid: true,
 		},
@@ -349,44 +346,6 @@ func TestGetRelatedOutput_Format(t *testing.T) {
 	}
 	if output.Related[0].Direction != "outgoing" {
 		t.Errorf("Direction: got %s, want outgoing", output.Related[0].Direction)
-	}
-}
-
-func TestDerefSlice(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    *[]string
-		expected []string
-	}{
-		{
-			name:     "nil pointer",
-			input:    nil,
-			expected: nil,
-		},
-		{
-			name:     "empty slice",
-			input:    &[]string{},
-			expected: []string{},
-		},
-		{
-			name:     "slice with values",
-			input:    &[]string{"a", "b", "c"},
-			expected: []string{"a", "b", "c"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := tools.DerefSlice(tt.input)
-			if len(result) != len(tt.expected) {
-				t.Errorf("DerefSlice() len = %d, want %d", len(result), len(tt.expected))
-			}
-			for i, v := range result {
-				if v != tt.expected[i] {
-					t.Errorf("DerefSlice()[%d] = %s, want %s", i, v, tt.expected[i])
-				}
-			}
-		})
 	}
 }
 

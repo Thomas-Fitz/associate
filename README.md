@@ -75,12 +75,6 @@ The script automatically:
 - Runs the associate container in stdio mode
 - Routes MCP protocol messages through stdin/stdout
 
-Notes and best practices for Copilot:
-- Use the Copilot UI (Extensions / Commands) to manage and trust local MCP servers.
-- Ensure Agent/Chat features are enabled in Copilot settings so the agent can call tools exposed by Associate. To do so, add associate to your allows tools in your AGENTS.md.
-
-**Requirements:** Docker and docker-compose only.
-
 #### Option B - Github Copilot CLI
 
 Support for stdio is limited in Copilot CLI as of 0.0.377. Use HTTP if you run into problems.
@@ -105,7 +99,7 @@ Example HTTP config:
 
 ### Prompting & AGENTS.md
 
-Associate tools can be triggered manually through prompts or by updating your AGENTS.md. See the [prompt documentation](docs\prompts.md) for examples.
+Associate tools can be triggered manually through prompts or by updating your AGENTS.md. See the [prompt documentation](docs/prompts.md) for examples.
 
 ```
 # snippets from successful AGENTS.md use cases
@@ -118,8 +112,6 @@ Associate tools can be triggered manually through prompts or by updating your AG
 "As you learn, update existing memories with new relationships and information."
 
 "Use Task-type memories to track work items and their relationships to code and other tasks."
-
-Store repository-wide information and conventions using Repository-type memories."
 ```
 
 ## MCP Tools

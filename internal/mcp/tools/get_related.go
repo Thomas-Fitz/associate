@@ -26,7 +26,7 @@ Count   int                 `json:"count"`
 func GetRelatedTool() *mcp.Tool {
 return &mcp.Tool{
 Name:        "get_related",
-Description: "Traverse the graph to find memories connected to a given node. Filter by relationship_type: RELATES_TO (general connection), PART_OF (hierarchical), REFERENCES (citation), DEPENDS_ON (dependency), BLOCKS (task gating), FOLLOWS (sequence), IMPLEMENTS (code-to-decision). Filter by direction: incoming (edges pointing to this node), outgoing (edges from this node), or both (default). Specify depth for multi-hop traversal (default: 1, max: 5). Returns full memory details for all related nodes including their relationship type, direction, and depth in the traversal.",
+Description: "Retrieve memories by id. Filter results using relationship_type (string: RELATES_TO, PART_OF, REFERENCES, DEPENDS_ON, BLOCKS, FOLLOWS, IMPLEMENTS), direction (string: incoming, outgoing, both), and depth (int: 1-5). Returns related memory details.",
 }
 }
 

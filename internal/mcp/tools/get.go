@@ -28,7 +28,7 @@ UpdatedAt string            `json:"updated_at"`
 func GetTool() *mcp.Tool {
 return &mcp.Tool{
 Name:        "get_memory",
-Description: "Get a single memory by ID with full details including all relationships. Returns: id, type (Note|Task|Project|Repository|Memory), content, metadata, tags, related memories with their relationship types and direction (incoming|outgoing), created_at, and updated_at timestamps.",
+Description: "Retrieve a single memory by id. Returns full details: type (Note, Task, Project, Repository, Memory), content (string), metadata (json), tags (array), and related (array) memories including relationship types and directions.",
 }
 }
 

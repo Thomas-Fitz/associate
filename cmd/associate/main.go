@@ -19,6 +19,7 @@ func main() {
 	// Parse flags
 	httpMode := flag.Bool("http", false, "Run as HTTP server (default: stdio for MCP)")
 	port := flag.Int("port", 8080, "HTTP port to listen on (only used with -http)")
+	waitForDB := flag.Bool("wait", true, "Wait for Neo4j to be available (with retries)")
 	flag.Parse()
 
 	// Setup logger
@@ -42,7 +43,17 @@ func main() {
 	cfg := neo4j.ConfigFromEnv()
 	logger.Info("connecting to Neo4j", "uri", cfg.URI, "database", cfg.Database)
 
-	client, err := neo4j.NewClient(ctx, cfg)
+	var client *neo4j.Client
+	var err error
+
+	if *waitForDB {
+		// Use retry logic - useful when starting before Neo4j is ready
+		logger.Info("waiting for Neo4j to be available...")
+		client, err = neo4j.NewClientWithRetry(ctx, cfg, nil)
+	} else {
+		// Direct connection - fails immediately if Neo4j unavailable
+		client, err = neo4j.NewClient(ctx, cfg)
+	}
 	if err != nil {
 		logger.Error("failed to connect to Neo4j", "error", err)
 		os.Exit(1)
@@ -68,7 +79,7 @@ func main() {
 			<-ctx.Done()
 			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer shutdownCancel()
-			httpServer.Shutdown(shutdownCtx)
+			_ = httpServer.Shutdown(shutdownCtx)
 		}()
 
 		logger.Info("starting HTTP server", "addr", addr)

@@ -46,20 +46,6 @@ CreatedAt    string            `json:"created_at"`
 UpdatedAt    string            `json:"updated_at"`
 }
 
-// DerefSlice safely dereferences a pointer to a slice, returning nil if the pointer is nil.
-// Exported for testing purposes.
-func DerefSlice(p *[]string) []string {
-	return derefSlice(p)
-}
-
-// derefSlice safely dereferences a pointer to a slice, returning nil if the pointer is nil.
-func derefSlice(p *[]string) []string {
-if p == nil {
-return nil
-}
-return *p
-}
-
 // ConvertMetadata converts a map[string]any to map[string]string.
 // Exported for testing purposes.
 func ConvertMetadata(m map[string]any) map[string]string {
@@ -89,30 +75,31 @@ result[k] = string(b)
 return result
 }
 
-// buildRelationships builds a slice of relationships from the input pointer slices.
+// buildRelationships builds a slice of relationships from the input slices.
+// Nil slices are safely handled - range over nil iterates zero times.
 func buildRelationships(
-relatedTo, partOf, references, dependsOn, blocks, follows, implements *[]string,
+relatedTo, partOf, references, dependsOn, blocks, follows, implements []string,
 ) []models.Relationship {
 var rels []models.Relationship
-for _, id := range derefSlice(relatedTo) {
+for _, id := range relatedTo {
 rels = append(rels, models.Relationship{ToID: id, Type: models.RelRelatesTo})
 }
-for _, id := range derefSlice(partOf) {
+for _, id := range partOf {
 rels = append(rels, models.Relationship{ToID: id, Type: models.RelPartOf})
 }
-for _, id := range derefSlice(references) {
+for _, id := range references {
 rels = append(rels, models.Relationship{ToID: id, Type: models.RelReferences})
 }
-for _, id := range derefSlice(dependsOn) {
+for _, id := range dependsOn {
 rels = append(rels, models.Relationship{ToID: id, Type: models.RelDependsOn})
 }
-for _, id := range derefSlice(blocks) {
+for _, id := range blocks {
 rels = append(rels, models.Relationship{ToID: id, Type: models.RelBlocks})
 }
-for _, id := range derefSlice(follows) {
+for _, id := range follows {
 rels = append(rels, models.Relationship{ToID: id, Type: models.RelFollows})
 }
-for _, id := range derefSlice(implements) {
+for _, id := range implements {
 rels = append(rels, models.Relationship{ToID: id, Type: models.RelImplements})
 }
 return rels

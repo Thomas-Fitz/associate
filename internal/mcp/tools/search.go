@@ -36,7 +36,7 @@ UpdatedAt string            `json:"updated_at"`
 func SearchTool() *mcp.Tool {
 return &mcp.Tool{
 Name:        "search_memories",
-Description: "Search for memories by full-text content search. Returns matching memories with relevance scores. Results include: id, type (Note|Task|Project|Repository|Memory), content, score (0-1), metadata, tags, list of related memory IDs, created_at, and updated_at timestamps. Default limit is 10 results.",
+Description: "Search memories with parameters query (string) and limit (int, default 10). Returns matching results with: id, type (Note, Task, Project, Repository, Memory), content (string), score (float), metadata (json), tags (array), and related (array) memory IDs.",
 }
 }
 

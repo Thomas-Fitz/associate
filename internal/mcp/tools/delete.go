@@ -22,7 +22,7 @@ Deleted bool   `json:"deleted"`
 func DeleteTool() *mcp.Tool {
 return &mcp.Tool{
 Name:        "delete_memory",
-Description: "Permanently delete a memory and all its relationships from the graph database. This operation cannot be undone. Related memories are not deleted, only the relationships connecting them. Returns the deleted ID and confirmation boolean.",
+Description: "Permanently delete a memory and its relationships. Cannot be undone. Returns the deleted ID and confirmation boolean.",
 }
 }
 

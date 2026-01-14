@@ -31,4 +31,6 @@ services:
       - NEO4J_DATABASE=neo4j
     ports:
       - "8080:8080"
+    # Override to HTTP mode for standalone server deployment
+    command: ["-http"]
     restart: unless-stopped

@@ -13,7 +13,6 @@ import (
 )
 
 // TestPersistence_SurvivesRestart verifies that data persists across database restarts.
-// Run with: go test -tags=integration -v ./internal/neo4j -run TestPersistence
 func TestPersistence_SurvivesRestart(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

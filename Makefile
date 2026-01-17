@@ -29,7 +29,6 @@ test-integration:
 
 # Test persistence (run before and after docker restart)
 test-persistence:
-	@mkdir -p .associate/data .associate/logs
 	go test -tags=integration -v ./internal/neo4j -run TestPersistence
 
 # Clean build artifacts

@@ -128,6 +128,37 @@ Associate tools can be triggered manually through prompts or by updating your AG
 
 Once the DB container is running, access the Neo4j UI in your browser at http://localhost:7474.
 
+### Data Persistence
+
+Neo4j data is stored in a Docker named volume that persists across container restarts:
+
+- `associate_neo4j_data` - Database files
+
+**Volume Management:**
+
+```bash
+# List volumes
+docker volume ls | grep associate
+
+# Inspect volume details
+docker volume inspect associate_neo4j_data
+
+# Remove all data (stops containers and deletes volumes)
+docker-compose down -v
+
+# Stop containers but keep data (for restarts)
+docker-compose down
+```
+
+**Data Lifecycle:**
+- `docker-compose down` - Stops containers, **preserves data**
+- `docker-compose down -v` - Stops containers and **removes all data**
+- Volumes persist even if you delete the containers manually
+
+**Backup/Migration:**
+To backup or migrate your Neo4j data, use Docker volume commands or Neo4j's native backup tools.
+
+
 ## MCP Tools
 
 | Function | Description |

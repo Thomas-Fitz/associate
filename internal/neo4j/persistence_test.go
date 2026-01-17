@@ -75,25 +75,6 @@ func TestPersistence_SurvivesRestart(t *testing.T) {
 	t.Log("  Restart the database and run this test again to verify persistence.")
 }
 
-// TestBindMountExists verifies the bind mount directory exists
-func TestBindMountExists(t *testing.T) {
-	dataDir := "./.associate/data"
-
-	// Check from project root
-	if _, err := os.Stat("../../.associate/data"); err == nil {
-		t.Logf("✓ Bind mount directory exists at project root")
-		return
-	}
-
-	// Check from current directory
-	if _, err := os.Stat(dataDir); err == nil {
-		t.Logf("✓ Bind mount directory exists: %s", dataDir)
-		return
-	}
-
-	t.Log("Note: .associate/data directory will be created when docker-compose starts")
-}
-
 func getEnvOrDefault(key, defaultVal string) string {
 	if v := os.Getenv(key); v != "" {
 		return v

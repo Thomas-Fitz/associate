@@ -19,9 +19,6 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 cd "$PROJECT_ROOT"
 
-# Ensure data directories exist
-mkdir -p .associate/data .associate/logs
-
 # Check if Neo4j is running, start if not
 if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^associate-neo4j$'; then
     # Start Neo4j in the background

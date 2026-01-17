@@ -18,10 +18,6 @@ $PROJECT_ROOT = Split-Path -Parent $SCRIPT_DIR
 
 Set-Location $PROJECT_ROOT
 
-# Ensure data directories exist
-New-Item -ItemType Directory -Force -Path ".associate/data" | Out-Null
-New-Item -ItemType Directory -Force -Path ".associate/logs" | Out-Null
-
 # Check if Neo4j is running, start if not
 $neo4jRunning = docker ps --format "{{.Names}}" 2>$null | Select-String -Pattern "^associate-neo4j$" -Quiet
 

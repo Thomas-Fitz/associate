@@ -11,11 +11,8 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
 echo "=== Neo4j Persistence Test ==="
-echo "This test verifies that data persists across docker-compose down -v"
+echo "This test verifies that data persists across docker-compose down"
 echo ""
-
-# Ensure bind mount directories exist
-mkdir -p .associate/data .associate/logs
 
 # Step 1: Start services
 echo "Step 1: Starting services..."
@@ -44,7 +41,7 @@ curl -s -X POST http://localhost:7474/db/neo4j/tx/commit \
             \"statement\": \"CREATE (m:Memory {id: '\$id', content: 'Persistence test', created_at: datetime()}) RETURN m.id\",
             \"parameters\": {\"id\": \"$TEST_ID\"}
         }]
-    }" | jq .
+    }" > /dev/null
 
 # Step 3: Verify it exists
 echo ""
@@ -66,10 +63,10 @@ else
     exit 1
 fi
 
-# Step 4: Stop with -v flag (removes named volumes but NOT bind mounts)
+# Step 4: Stop without -v flag (preserves volumes)
 echo ""
-echo "Step 4: Running docker-compose down -v..."
-docker-compose down -v
+echo "Step 4: Running docker-compose down (without -v to preserve data)..."
+docker-compose down
 
 # Step 5: Start again
 echo ""
@@ -101,9 +98,9 @@ RESULT=$(curl -s -X POST http://localhost:7474/db/neo4j/tx/commit \
     }")
 
 if echo "$RESULT" | grep -q "$TEST_ID"; then
-    echo -e "${GREEN}✓ SUCCESS: Memory persisted after docker-compose down -v!${NC}"
+    echo -e "${GREEN}✓ SUCCESS: Memory persisted after docker-compose down!${NC}"
     echo ""
-    echo "Bind mounts work correctly. Data in .associate/ directory is preserved."
+    echo "Docker volumes work correctly. Data persists across container restarts."
 else
     echo -e "${RED}✗ FAILURE: Memory was lost after restart${NC}"
     exit 1

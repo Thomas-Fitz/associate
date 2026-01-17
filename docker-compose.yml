@@ -9,9 +9,7 @@ services:
       - "7474:7474"  # HTTP
       - "7687:7687"  # Bolt
     volumes:
-      # Bind mounts persist data even with docker-compose down -v
-      - ./.associate/data:/data
-      - ./.associate/logs:/logs
+      - associate_neo4j_data:/data
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:7474"]
       interval: 10s
@@ -34,3 +32,8 @@ services:
     # Override to HTTP mode for standalone server deployment
     command: ["-http"]
     restart: unless-stopped
+
+volumes:
+  associate_neo4j_data:
+    name: associate_neo4j_data
+

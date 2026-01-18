@@ -114,15 +114,17 @@ Associate tools can be triggered manually through prompts or by updating your AG
 
 ```
 # snippets from successful AGENTS.md use cases
-"When planning, check if your memory context related to the current task."
+"When planning, check your memory for context related to the current task."
 
 "Before creating new memories, always search to check if similar information already exists."
 
-"Use the PART_OF relationship to organize memories into logical project structures."
+"Use Plans to organize multi-step work and Tasks to track actionable items with status."
 
 "As you learn, update existing memories with new relationships and information."
 
-"Use Task-type memories to track work items and their relationships to code and other tasks."
+"Use create_task with plan_id to associate tasks with plans for organized tracking."
+
+"Update task status as you work: pending → in_progress → completed."
 ```
 ### Memory DB Access
 
@@ -161,6 +163,8 @@ To backup or migrate your Neo4j data, use Docker volume commands or Neo4j's nati
 
 ## MCP Tools
 
+### Memory Tools
+
 | Function | Description |
 | :--- | :--- |
 | `search_memories` | Search for memories by content with full-text search. |
@@ -168,15 +172,58 @@ To backup or migrate your Neo4j data, use Docker volume commands or Neo4j's nati
 | `update_memory` | Update an existing memory or add new relationships. |
 | `get_memory` | Retrieve a single memory by ID, including its relationships. |
 | `delete_memory` | Delete a memory and all its relationships from the graph. |
-| `get_related` | Traverse the graph to find all memories connected to a given node. Supports filtering by relationship type, direction, and traversal depth. |
+| `get_related` | Traverse the graph to find all nodes (Memory, Plan, Task) connected to a given node. Supports filtering by relationship type, direction, and traversal depth. |
 
-## Memory Types
+### Plan Tools
 
+| Function | Description |
+| :--- | :--- |
+| `create_plan` | Create a new plan for organizing related tasks. |
+| `get_plan` | Retrieve a plan by ID, including its tasks. |
+| `update_plan` | Update a plan's name, description, status, or relationships. |
+| `delete_plan` | Delete a plan and cascade delete orphan tasks. |
+| `list_plans` | List all plans, optionally filtered by status or tags. |
+
+### Task Tools
+
+| Function | Description |
+| :--- | :--- |
+| `create_task` | Create a new task, optionally linked to a plan. |
+| `get_task` | Retrieve a task by ID, including its plans and relationships. |
+| `update_task` | Update a task's content, status, or relationships. |
+| `delete_task` | Delete a task from the graph. |
+| `list_tasks` | List tasks, optionally filtered by plan, status, or tags. |
+
+## Node Types
+
+Associate uses three distinct node types in the graph:
+
+### Memories
+General knowledge storage for notes, documentation, and context.
+
+**Memory Types:**
 - `Note` - General notes and observations
-- `Task` - Tasks and action items
-- `Project` - Project definitions
-- `Repository` - Code repository information
+- `Repository` - Code repository information  
 - `Memory` - Generic memories (default)
+
+### Plans
+Containers for organizing related tasks with status tracking.
+
+**Plan Statuses:**
+- `draft` - Plan is being defined
+- `active` - Plan is currently being worked on
+- `completed` - All tasks in the plan are done
+- `archived` - Plan is no longer active
+
+### Tasks
+Actionable work items with status tracking and dependencies.
+
+**Task Statuses:**
+- `pending` - Task has not started
+- `in_progress` - Task is actively being worked on
+- `completed` - Task is finished
+- `cancelled` - Task was cancelled
+- `blocked` - Task is blocked by dependencies
 
 ## Relationship Types
 
@@ -201,9 +248,9 @@ Environment variables:
 
 ## Roadmap
 
-* Better To Do list handling including "get to do by project"
+* ~~Better To Do list handling including "get to do by project"~~ ✅ (Implemented as Plans/Tasks with `list_tasks` by plan_id)
 * Improved search result weights
-* Indexing
+* Search across all node types (currently Memory-only)
 * Deep storage for long term memory
 * Distinct agent memory databases
 * GUI

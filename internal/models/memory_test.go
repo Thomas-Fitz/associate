@@ -7,8 +7,9 @@ import (
 
 func TestMemoryType_Constants(t *testing.T) {
 	// Verify all expected types are defined
-	types := []MemoryType{TypeNote, TypeTask, TypeProject, TypeRepository, TypeGeneral}
-	expected := []string{"Note", "Task", "Project", "Repository", "Memory"}
+	// Note: TypeTask and TypeProject have been moved to separate Task and Plan node types
+	types := []MemoryType{TypeNote, TypeRepository, TypeGeneral}
+	expected := []string{"Note", "Repository", "Memory"}
 
 	for i, mt := range types {
 		if string(mt) != expected[i] {
@@ -73,7 +74,7 @@ func TestSearchResult_Struct(t *testing.T) {
 func TestRelatedInfo_Struct(t *testing.T) {
 	ri := RelatedInfo{
 		ID:           "related-id",
-		Type:         TypeTask,
+		Type:         TypeNote,
 		RelationType: "DEPENDS_ON",
 		Direction:    "outgoing",
 	}
@@ -81,8 +82,8 @@ func TestRelatedInfo_Struct(t *testing.T) {
 	if ri.ID != "related-id" {
 		t.Errorf("ID: got %s, want related-id", ri.ID)
 	}
-	if ri.Type != TypeTask {
-		t.Errorf("Type: got %s, want %s", ri.Type, TypeTask)
+	if ri.Type != TypeNote {
+		t.Errorf("Type: got %s, want %s", ri.Type, TypeNote)
 	}
 	if ri.RelationType != "DEPENDS_ON" {
 		t.Errorf("RelationType: got %s, want DEPENDS_ON", ri.RelationType)

@@ -11,7 +11,7 @@ import (
 // CreateTaskInput defines the input for the create_task tool.
 type CreateTaskInput struct {
 	Content    string         `json:"content" jsonschema:"required,The content/description of the task"`
-	PlanID     string         `json:"plan_id,omitempty" jsonschema:"ID of a plan to add this task to (creates PART_OF relationship)"`
+	PlanIDs    []string       `json:"plan_ids" jsonschema:"required,IDs of plans this task belongs to (at least one required, creates PART_OF relationships)"`
 	Status     string         `json:"status,omitempty" jsonschema:"Task status: pending, in_progress, completed, cancelled, blocked (default: pending)"`
 	Metadata   map[string]any `json:"metadata,omitempty" jsonschema:"Key-value metadata to attach to the task"`
 	Tags       []string       `json:"tags,omitempty" jsonschema:"Tags for categorizing the task"`
@@ -36,16 +36,21 @@ type CreateTaskOutput struct {
 func CreateTaskTool() *mcp.Tool {
 	return &mcp.Tool{
 		Name:        "create_task",
-		Description: "Create a new task with content, status, and optional plan association. Tasks can have dependencies (depends_on, blocks, follows) and other relationships. Returns the created task with its ID.",
+		Description: "Create a new task that belongs to one or more plans. Tasks must be associated with at least one plan via plan_ids. Supports dependencies (depends_on, blocks, follows) and other relationships. Returns the created task with its ID.",
 	}
 }
 
 // HandleCreateTask handles the create_task tool call.
 func (h *Handler) HandleCreateTask(ctx context.Context, req *mcp.CallToolRequest, input CreateTaskInput) (*mcp.CallToolResult, CreateTaskOutput, error) {
-	h.Logger.Info("create_task", "content_len", len(input.Content), "plan_id", input.PlanID, "status", input.Status)
+	h.Logger.Info("create_task", "content_len", len(input.Content), "plan_ids", input.PlanIDs, "status", input.Status)
 
 	if input.Content == "" {
 		return nil, CreateTaskOutput{}, fmt.Errorf("content is required")
+	}
+
+	// Validate plan_ids - at least one plan is required
+	if len(input.PlanIDs) == 0 {
+		return nil, CreateTaskOutput{}, fmt.Errorf("plan_ids is required: task must belong to at least one plan")
 	}
 
 	// Validate status if provided
@@ -67,19 +72,13 @@ func (h *Handler) HandleCreateTask(ctx context.Context, req *mcp.CallToolRequest
 		Tags:     input.Tags,
 	}
 
-	// Build plan IDs list
-	var planIDs []string
-	if input.PlanID != "" {
-		planIDs = append(planIDs, input.PlanID)
-	}
-
 	// Build other relationships
 	rels := buildRelationships(
 		input.RelatedTo, nil, input.References,
 		input.DependsOn, input.Blocks, input.Follows, nil,
 	)
 
-	created, err := h.TaskRepo.Add(ctx, task, planIDs, rels)
+	created, err := h.TaskRepo.Add(ctx, task, input.PlanIDs, rels)
 	if err != nil {
 		h.Logger.Error("create_task failed", "error", err)
 		return nil, CreateTaskOutput{}, fmt.Errorf("failed to create task: %w", err)

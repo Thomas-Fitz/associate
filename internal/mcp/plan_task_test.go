@@ -218,7 +218,7 @@ func TestCreateTaskInput_Validation(t *testing.T) {
 			name: "valid with all fields",
 			input: tools.CreateTaskInput{
 				Content:  "Test task content",
-				PlanID:   "plan-123",
+				PlanIDs:  []string{"plan-123"},
 				Status:   "pending",
 				Metadata: map[string]any{"priority": "high"},
 				Tags:     []string{"test"},
@@ -226,21 +226,87 @@ func TestCreateTaskInput_Validation(t *testing.T) {
 			valid: true,
 		},
 		{
-			name:  "minimal valid (content only)",
-			input: tools.CreateTaskInput{Content: "Test task"},
+			name: "valid with multiple plans",
+			input: tools.CreateTaskInput{
+				Content: "Test task",
+				PlanIDs: []string{"plan-123", "plan-456"},
+			},
 			valid: true,
 		},
 		{
 			name:  "empty content",
-			input: tools.CreateTaskInput{Content: ""},
+			input: tools.CreateTaskInput{Content: "", PlanIDs: []string{"plan-123"}},
 			valid: false, // content is required
+		},
+		{
+			name:  "empty plan_ids",
+			input: tools.CreateTaskInput{Content: "Test task", PlanIDs: []string{}},
+			valid: false, // plan_ids is required
+		},
+		{
+			name:  "nil plan_ids",
+			input: tools.CreateTaskInput{Content: "Test task", PlanIDs: nil},
+			valid: false, // plan_ids is required
+		},
+		{
+			name:  "missing plan_ids (content only)",
+			input: tools.CreateTaskInput{Content: "Test task"},
+			valid: false, // plan_ids is required
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Validate content requirement
 			if tt.input.Content == "" && tt.valid {
 				t.Error("Content should be required for create_task")
+			}
+			// Validate plan_ids requirement
+			if len(tt.input.PlanIDs) == 0 && tt.valid {
+				t.Error("PlanIDs should be required for create_task (at least one plan)")
+			}
+		})
+	}
+}
+
+func TestCreateTaskInput_RequiresPlanIDs(t *testing.T) {
+	// Explicit tests for plan_ids validation
+	tests := []struct {
+		name    string
+		planIDs []string
+		wantErr bool
+	}{
+		{
+			name:    "empty plan_ids should fail",
+			planIDs: []string{},
+			wantErr: true,
+		},
+		{
+			name:    "nil plan_ids should fail",
+			planIDs: nil,
+			wantErr: true,
+		},
+		{
+			name:    "single plan_id should pass",
+			planIDs: []string{"plan-123"},
+			wantErr: false,
+		},
+		{
+			name:    "multiple plan_ids should pass",
+			planIDs: []string{"plan-123", "plan-456"},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := tools.CreateTaskInput{
+				Content: "Test task",
+				PlanIDs: tt.planIDs,
+			}
+			hasError := len(input.PlanIDs) == 0
+			if hasError != tt.wantErr {
+				t.Errorf("PlanIDs validation: got error=%v, want error=%v", hasError, tt.wantErr)
 			}
 		})
 	}

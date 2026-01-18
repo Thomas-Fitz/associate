@@ -170,9 +170,18 @@ func TestTaskRepository_CRUD(t *testing.T) {
 	defer cancel()
 	defer client.Close(ctx)
 
+	planRepo := NewPlanRepository(client)
 	repo := NewTaskRepository(client)
+	planID := "test-plan-crud-" + time.Now().Format("20060102-150405-000")
 	testID := "test-task-" + time.Now().Format("20060102-150405-000")
-	defer cleanupTestData(ctx, client, testID)
+	defer cleanupTestData(ctx, client, planID, testID)
+
+	// Create a plan first (tasks require at least one plan)
+	_, err := planRepo.Add(ctx, models.Plan{ID: planID, Name: "Test Plan for Tasks", Status: models.PlanStatusActive}, nil)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+	t.Log("✓ Created plan for task CRUD test")
 
 	// Test Create
 	t.Run("Create", func(t *testing.T) {
@@ -184,7 +193,7 @@ func TestTaskRepository_CRUD(t *testing.T) {
 			Metadata: map[string]string{"priority": "1"},
 		}
 
-		created, err := repo.Add(ctx, task, nil, nil)
+		created, err := repo.Add(ctx, task, []string{planID}, nil)
 		if err != nil {
 			t.Fatalf("Failed to create task: %v", err)
 		}
@@ -432,6 +441,99 @@ func TestCascadeDelete(t *testing.T) {
 	} else {
 		t.Log("✓ Shared task still linked to plan2")
 	}
+}
+
+// TestTaskRequiresPlan tests that tasks must belong to at least one valid plan
+func TestTaskRequiresPlan(t *testing.T) {
+	client, ctx, cancel := getTestClient(t)
+	defer cancel()
+	defer client.Close(ctx)
+
+	planRepo := NewPlanRepository(client)
+	taskRepo := NewTaskRepository(client)
+
+	timestamp := time.Now().Format("20060102-150405-000")
+	planID := "test-plan-require-" + timestamp
+	taskID := "test-task-require-" + timestamp
+	defer cleanupTestData(ctx, client, planID, taskID)
+
+	// Test: Creating task with no plan_ids should fail
+	t.Run("CreateWithNoPlansFails", func(t *testing.T) {
+		task := models.Task{
+			ID:      taskID + "-noplan",
+			Content: "Task without plan",
+			Status:  models.TaskStatusPending,
+		}
+		_, err := taskRepo.Add(ctx, task, []string{}, nil)
+		if err == nil {
+			t.Error("Expected error when creating task without plans")
+			cleanupTestData(ctx, client, taskID+"-noplan")
+		} else {
+			t.Logf("✓ Got expected error: %v", err)
+		}
+	})
+
+	// Test: Creating task with nil plan_ids should fail
+	t.Run("CreateWithNilPlansFails", func(t *testing.T) {
+		task := models.Task{
+			ID:      taskID + "-nilplan",
+			Content: "Task with nil plans",
+			Status:  models.TaskStatusPending,
+		}
+		_, err := taskRepo.Add(ctx, task, nil, nil)
+		if err == nil {
+			t.Error("Expected error when creating task with nil plans")
+			cleanupTestData(ctx, client, taskID+"-nilplan")
+		} else {
+			t.Logf("✓ Got expected error: %v", err)
+		}
+	})
+
+	// Test: Creating task with non-existent plan should fail
+	t.Run("CreateWithNonExistentPlanFails", func(t *testing.T) {
+		task := models.Task{
+			ID:      taskID + "-badplan",
+			Content: "Task with non-existent plan",
+			Status:  models.TaskStatusPending,
+		}
+		_, err := taskRepo.Add(ctx, task, []string{"non-existent-plan-id"}, nil)
+		if err == nil {
+			t.Error("Expected error when creating task with non-existent plan")
+			cleanupTestData(ctx, client, taskID+"-badplan")
+		} else {
+			t.Logf("✓ Got expected error: %v", err)
+		}
+	})
+
+	// Test: Creating task with valid plan should succeed
+	t.Run("CreateWithValidPlanSucceeds", func(t *testing.T) {
+		// First create a valid plan
+		_, err := planRepo.Add(ctx, models.Plan{ID: planID, Name: "Valid Plan", Status: models.PlanStatusActive}, nil)
+		if err != nil {
+			t.Fatalf("Failed to create plan: %v", err)
+		}
+
+		task := models.Task{
+			ID:      taskID,
+			Content: "Task with valid plan",
+			Status:  models.TaskStatusPending,
+		}
+		created, err := taskRepo.Add(ctx, task, []string{planID}, nil)
+		if err != nil {
+			t.Fatalf("Expected success when creating task with valid plan, got: %v", err)
+		}
+		t.Logf("✓ Created task successfully: %s", created.ID)
+	})
+
+	// Test: Updating task to add non-existent plan should fail
+	t.Run("UpdateWithNonExistentPlanFails", func(t *testing.T) {
+		_, err := taskRepo.Update(ctx, taskID, nil, nil, nil, nil, []string{"non-existent-plan-id"}, nil)
+		if err == nil {
+			t.Error("Expected error when updating task with non-existent plan")
+		} else {
+			t.Logf("✓ Got expected error: %v", err)
+		}
+	})
 }
 
 // TestCrossTypeRelationships tests relationships between Memory, Plan, and Task nodes

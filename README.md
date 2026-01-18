@@ -122,7 +122,7 @@ Associate tools can be triggered manually through prompts or by updating your AG
 
 "As you learn, update existing memories with new relationships and information."
 
-"Use create_task with plan_id to associate tasks with plans for organized tracking."
+"Use create_task with plan_ids (required array) to associate tasks with plans for organized tracking."
 
 "Update task status as you work: pending → in_progress → completed."
 ```

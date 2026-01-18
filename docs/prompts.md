@@ -37,7 +37,7 @@ Use the `create_plan` tool to organize work into logical structures with tasks.
 
 **Expected Agent Behavior:**
 1. Create a Plan for the overall payment system using `create_plan`
-2. Create a Task for Stripe integration using `create_task` with `plan_id`
+2. Create a Task for Stripe integration using `create_task` with `plan_ids` (required)
 
 **Example Tool Calls:**
 ```json
@@ -53,12 +53,12 @@ Use the `create_plan` tool to organize work into logical structures with tasks.
 }
 // Returns: {"id": "plan-uuid", ...}
 
-// Create task linked to the plan
+// Create task linked to the plan (plan_ids is required)
 {
   "name": "create_task",
   "arguments": {
     "content": "Implement Stripe payment gateway integration",
-    "plan_id": "plan-uuid",
+    "plan_ids": ["plan-uuid"],
     "status": "pending",
     "tags": ["stripe", "integration"]
   }
@@ -114,13 +114,13 @@ Use the dedicated Task tools (`create_task`, `get_task`, `update_task`, `list_ta
   }
 }
 
-// Create the task with dependency
+// Create the task with dependency (plan_ids is required)
 {
   "name": "create_task",
   "arguments": {
     "content": "Add unit tests for payment webhook handler",
     "status": "blocked",
-    "plan_id": "payment-plan-uuid",
+    "plan_ids": ["payment-plan-uuid"],
     "depends_on": ["stripe-task-uuid"],
     "tags": ["testing", "webhooks", "payments"]
   }
@@ -185,7 +185,7 @@ Agents should build context progressively across multiple interactions within a 
    - Use **Tasks** (`create_task`) for actionable work items with status (pending → in_progress → completed/cancelled/blocked)
    - Use **Memories** (`add_memory`) for knowledge, notes, and documentation (Note, Repository types)
 6. **Track task status**: Update task status as work progresses using `update_task` - don't just create and forget
-7. **Link tasks to plans**: Always associate tasks with a plan using `plan_id` for better organization
+7. **Link tasks to plans**: Always associate tasks with at least one plan using `plan_ids` (required) for better organization
 8. **Update, don't duplicate**: When you gain new information about existing concepts, update the memory/task/plan rather than creating a new one
 9. **Cross-reference decisions**: Link tasks and memories to architectural decisions using IMPLEMENTS or REFERENCES
 10. **Progressive refinement**: Start with basic items and enhance them with relationships as you learn more about the codebase
@@ -236,7 +236,7 @@ Use Plans to organize related tasks and use task status tracking to manage progr
 **Expected Agent Behavior:**
 1. Create a Plan for the authentication feature
 2. Create each task linked to the plan with FOLLOWS relationships for sequence
-3. Use `list_tasks` with `plan_id` to track progress
+3. Use `list_tasks` with `plan_id` filter to track progress
 
 **Example Tool Calls:**
 ```json
@@ -252,12 +252,12 @@ Use Plans to organize related tasks and use task status tracking to manage progr
 }
 // Returns: {"id": "auth-plan-uuid", ...}
 
-// Create the first task
+// Create the first task (plan_ids is required)
 {
   "name": "create_task",
   "arguments": {
     "content": "Design authentication database schema including users, sessions, and tokens tables",
-    "plan_id": "auth-plan-uuid",
+    "plan_ids": ["auth-plan-uuid"],
     "status": "pending",
     "metadata": {"priority": "1"},
     "tags": ["auth", "database", "design"]
@@ -270,7 +270,7 @@ Use Plans to organize related tasks and use task status tracking to manage progr
   "name": "create_task",
   "arguments": {
     "content": "Implement User model with password hashing and validation",
-    "plan_id": "auth-plan-uuid",
+    "plan_ids": ["auth-plan-uuid"],
     "status": "pending",
     "metadata": {"priority": "2"},
     "tags": ["auth", "model", "implementation"],
@@ -284,7 +284,7 @@ Use Plans to organize related tasks and use task status tracking to manage progr
   "name": "create_task",
   "arguments": {
     "content": "Add JWT token generation and validation",
-    "plan_id": "auth-plan-uuid",
+    "plan_ids": ["auth-plan-uuid"],
     "status": "pending",
     "metadata": {"priority": "3"},
     "tags": ["auth", "jwt", "implementation"],
@@ -298,7 +298,7 @@ Use Plans to organize related tasks and use task status tracking to manage progr
   "name": "create_task",
   "arguments": {
     "content": "Create login endpoint with JWT response",
-    "plan_id": "auth-plan-uuid",
+    "plan_ids": ["auth-plan-uuid"],
     "status": "pending",
     "metadata": {"priority": "4"},
     "tags": ["auth", "api", "endpoint"],

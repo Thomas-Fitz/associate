@@ -20,10 +20,28 @@ func NewTaskRepository(client *Client) *TaskRepository {
 	return &TaskRepository{client: client}
 }
 
-// Add creates a new task with optional plan links and relationships
+// Add creates a new task with required plan links and optional relationships.
+// Tasks must belong to at least one plan. If any plan doesn't exist or relationship
+// creation fails, the operation is rolled back and an error is returned.
 func (r *TaskRepository) Add(ctx context.Context, task models.Task, planIDs []string, relationships []models.Relationship) (*models.Task, error) {
 	session := r.client.Session(ctx)
 	defer session.Close(ctx)
+
+	// Validate: at least one plan is required
+	if len(planIDs) == 0 {
+		return nil, fmt.Errorf("task must belong to at least one plan")
+	}
+
+	// Verify all plans exist BEFORE creating the task
+	for _, planID := range planIDs {
+		exists, err := r.planExists(ctx, session, planID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to verify plan %s: %w", planID, err)
+		}
+		if !exists {
+			return nil, fmt.Errorf("plan not found: %s", planID)
+		}
+	}
 
 	if task.ID == "" {
 		task.ID = uuid.New().String()
@@ -78,17 +96,23 @@ RETURN t
 		return nil, fmt.Errorf("no result returned from create")
 	}
 
-	// Create PART_OF relationships to plans
+	// Create PART_OF relationships to plans - fail and rollback if any fail
 	for _, planID := range planIDs {
 		if err := r.createTaskToPlanRelationship(ctx, session, task.ID, planID); err != nil {
-			fmt.Printf("warning: failed to create plan relationship: %v\n", err)
+			fmt.Printf("warning: failed to create plan relationship to %s: %v\n", planID, err)
+			// Rollback: delete the task we just created
+			r.Delete(ctx, task.ID)
+			return nil, fmt.Errorf("failed to link task to plan %s: %w", planID, err)
 		}
 	}
 
-	// Create other relationships
+	// Create other relationships - fail and rollback if any fail
 	for _, rel := range relationships {
 		if err := r.createRelationshipFromTask(ctx, session, task.ID, rel.ToID, rel.Type); err != nil {
-			fmt.Printf("warning: failed to create relationship: %v\n", err)
+			fmt.Printf("warning: failed to create %s relationship to %s: %v\n", rel.Type, rel.ToID, err)
+			// Rollback: delete the task we just created
+			r.Delete(ctx, task.ID)
+			return nil, fmt.Errorf("failed to create %s relationship to %s: %w", rel.Type, rel.ToID, err)
 		}
 	}
 
@@ -155,10 +179,22 @@ RETURN t, collect(p) as plans
 	return &task, plans, nil
 }
 
-// Update modifies an existing task
+// Update modifies an existing task. If adding to new plans, verifies they exist first.
+// If any plan doesn't exist or relationship creation fails, the entire update fails.
 func (r *TaskRepository) Update(ctx context.Context, id string, content *string, status *string, metadata map[string]string, tags []string, addPlanIDs []string, newRelationships []models.Relationship) (*models.Task, error) {
 	session := r.client.Session(ctx)
 	defer session.Close(ctx)
+
+	// Verify all plans exist BEFORE making any changes
+	for _, planID := range addPlanIDs {
+		exists, err := r.planExists(ctx, session, planID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to verify plan %s: %w", planID, err)
+		}
+		if !exists {
+			return nil, fmt.Errorf("plan not found: %s", planID)
+		}
+	}
 
 	// Build dynamic SET clause
 	setClauses := []string{"t.updated_at = datetime($updated_at)"}
@@ -202,17 +238,19 @@ RETURN t
 	node, _ := result.Record().Get("t")
 	task := nodeToTask(node.(neo4j.Node))
 
-	// Add to new plans
+	// Add to new plans - fail on error
 	for _, planID := range addPlanIDs {
 		if err := r.createTaskToPlanRelationship(ctx, session, id, planID); err != nil {
-			fmt.Printf("warning: failed to create plan relationship: %v\n", err)
+			fmt.Printf("warning: failed to create plan relationship to %s: %v\n", planID, err)
+			return nil, fmt.Errorf("failed to link task to plan %s: %w", planID, err)
 		}
 	}
 
-	// Create new relationships
+	// Create new relationships - fail on error
 	for _, rel := range newRelationships {
 		if err := r.createRelationshipFromTask(ctx, session, id, rel.ToID, rel.Type); err != nil {
-			fmt.Printf("warning: failed to create relationship: %v\n", err)
+			fmt.Printf("warning: failed to create %s relationship to %s: %v\n", rel.Type, rel.ToID, err)
+			return nil, fmt.Errorf("failed to create %s relationship to %s: %w", rel.Type, rel.ToID, err)
 		}
 	}
 
@@ -333,6 +371,23 @@ RETURN r
 		"plan_id": planID,
 	})
 	return err
+}
+
+// planExists checks if a plan with the given ID exists in the database
+func (r *TaskRepository) planExists(ctx context.Context, session neo4j.SessionWithContext, planID string) (bool, error) {
+	cypher := `MATCH (p:Plan {id: $id}) RETURN count(p) > 0 as exists`
+	result, err := session.Run(ctx, cypher, map[string]any{"id": planID})
+	if err != nil {
+		return false, err
+	}
+	if !result.Next(ctx) {
+		return false, nil
+	}
+	exists, _ := result.Record().Get("exists")
+	if b, ok := exists.(bool); ok {
+		return b, nil
+	}
+	return false, nil
 }
 
 // createRelationshipFromTask creates a relationship from a Task to another node (any type)

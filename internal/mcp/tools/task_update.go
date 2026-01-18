@@ -15,7 +15,7 @@ type UpdateTaskInput struct {
 	Status     *string        `json:"status,omitempty" jsonschema:"New status: pending, in_progress, completed, cancelled, blocked"`
 	Metadata   map[string]any `json:"metadata,omitempty" jsonschema:"New metadata (replaces existing)"`
 	Tags       []string       `json:"tags,omitempty" jsonschema:"New tags (replaces existing)"`
-	PlanID     string         `json:"plan_id,omitempty" jsonschema:"ID of a plan to add this task to (creates PART_OF relationship)"`
+	PlanIDs    []string       `json:"plan_ids,omitempty" jsonschema:"IDs of plans to add this task to (creates PART_OF relationships)"`
 	DependsOn  []string       `json:"depends_on,omitempty" jsonschema:"IDs of tasks to add DEPENDS_ON relationships to"`
 	Blocks     []string       `json:"blocks,omitempty" jsonschema:"IDs of tasks to add BLOCKS relationships to"`
 	Follows    []string       `json:"follows,omitempty" jsonschema:"IDs of tasks to add FOLLOWS relationships to"`
@@ -64,19 +64,13 @@ func (h *Handler) HandleUpdateTask(ctx context.Context, req *mcp.CallToolRequest
 		metadata = convertMetadata(input.Metadata)
 	}
 
-	// Build plan IDs list
-	var planIDs []string
-	if input.PlanID != "" {
-		planIDs = append(planIDs, input.PlanID)
-	}
-
 	// Build other relationships
 	rels := buildRelationships(
 		input.RelatedTo, nil, input.References,
 		input.DependsOn, input.Blocks, input.Follows, nil,
 	)
 
-	updated, err := h.TaskRepo.Update(ctx, input.ID, input.Content, status, metadata, input.Tags, planIDs, rels)
+	updated, err := h.TaskRepo.Update(ctx, input.ID, input.Content, status, metadata, input.Tags, input.PlanIDs, rels)
 	if err != nil {
 		h.Logger.Error("update_task failed", "id", input.ID, "error", err)
 		return nil, UpdateTaskOutput{}, fmt.Errorf("failed to update task: %w", err)

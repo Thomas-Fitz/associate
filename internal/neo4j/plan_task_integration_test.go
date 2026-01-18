@@ -443,6 +443,44 @@ func TestCascadeDelete(t *testing.T) {
 	}
 }
 
+// TestDeletePlanWithNoTasks tests that deleting a plan with no tasks works correctly
+// This is a regression test for a bug where the delete query returned "plan not found"
+// when the plan had no associated tasks due to UNWIND on an empty collection.
+func TestDeletePlanWithNoTasks(t *testing.T) {
+	client, ctx, cancel := getTestClient(t)
+	defer cancel()
+	defer client.Close(ctx)
+
+	planRepo := NewPlanRepository(client)
+	planID := "test-plan-notasks-" + time.Now().Format("20060102-150405-000")
+	defer cleanupTestData(ctx, client, planID)
+
+	// Create a plan with no tasks
+	_, err := planRepo.Add(ctx, models.Plan{ID: planID, Name: "Plan No Tasks", Status: models.PlanStatusActive}, nil)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+	t.Log("✓ Created plan with no tasks")
+
+	// Delete the plan (should succeed, not return "plan not found")
+	deletedCount, err := planRepo.Delete(ctx, planID)
+	if err != nil {
+		t.Fatalf("Failed to delete plan with no tasks: %v", err)
+	}
+	if deletedCount != 0 {
+		t.Errorf("Expected 0 tasks deleted, got %d", deletedCount)
+	}
+	t.Logf("✓ Deleted plan successfully, %d tasks cascade deleted", deletedCount)
+
+	// Verify plan is gone
+	plan, _ := planRepo.GetByID(ctx, planID)
+	if plan != nil {
+		t.Error("Plan should have been deleted")
+	} else {
+		t.Log("✓ Verified plan no longer exists")
+	}
+}
+
 // TestTaskRequiresPlan tests that tasks must belong to at least one valid plan
 func TestTaskRequiresPlan(t *testing.T) {
 	client, ctx, cancel := getTestClient(t)

@@ -219,19 +219,19 @@ func (r *PlanRepository) Delete(ctx context.Context, id string) (int, error) {
 
 	// First, find and delete tasks that only belong to this plan
 	// Tasks with PART_OF relationships to other plans are kept
+	// Note: We collect all tasks first, then filter in a list comprehension to handle
+	// the case where the plan has no tasks (avoids WHERE filtering out null rows)
 	deleteCypher := `
 MATCH (p:Plan {id: $id})
 OPTIONAL MATCH (t:Task)-[:PART_OF]->(p)
-WHERE NOT EXISTS {
-    MATCH (t)-[:PART_OF]->(other:Plan)
-    WHERE other.id <> $id
-}
-WITH p, collect(t) as tasksToDelete
-UNWIND tasksToDelete as task
-DETACH DELETE task
-WITH p, size(tasksToDelete) as deletedCount
+WITH p, collect(t) as allTasks
+WITH p, [task IN allTasks WHERE task IS NOT NULL AND NOT EXISTS {
+    MATCH (task)-[:PART_OF]->(other:Plan)
+    WHERE other.id <> p.id
+}] as tasksToDelete
+FOREACH (task IN tasksToDelete | DETACH DELETE task)
 DETACH DELETE p
-RETURN deletedCount
+RETURN size(tasksToDelete) as deletedCount
 `
 
 	result, err := session.Run(ctx, deleteCypher, map[string]any{"id": id})

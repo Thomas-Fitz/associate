@@ -54,7 +54,8 @@ func (h *Handler) HandleListPlans(ctx context.Context, req *mcp.CallToolRequest,
 	}
 
 	// Convert to summaries
-	var summaries []PlanSummary
+	// Initialize as empty slice (not nil) to ensure JSON serializes as [] not null
+	summaries := make([]PlanSummary, 0, len(plans))
 	for _, p := range plans {
 		summaries = append(summaries, PlanSummary{
 			ID:          p.ID,

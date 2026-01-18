@@ -1,6 +1,8 @@
 package mcp
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -203,6 +205,33 @@ func TestListPlansOutput_Format(t *testing.T) {
 
 	if output.Count != len(output.Plans) {
 		t.Errorf("Count mismatch: got %d, have %d results", output.Count, len(output.Plans))
+	}
+}
+
+func TestListPlansOutput_EmptyPlansSerializesToArray(t *testing.T) {
+	// This test verifies that an empty ListPlansOutput serializes the Plans
+	// field as an empty JSON array [], not null.
+	// The MCP schema requires "plans" to be an array type.
+	output := tools.ListPlansOutput{
+		Plans: []tools.PlanSummary{}, // empty slice, not nil
+		Count: 0,
+	}
+
+	data, err := json.Marshal(output)
+	if err != nil {
+		t.Fatalf("Failed to marshal output: %v", err)
+	}
+
+	jsonStr := string(data)
+
+	// Verify that plans is an empty array, not null
+	if !strings.Contains(jsonStr, `"plans":[]`) {
+		t.Errorf("Expected plans to serialize as empty array, got: %s", jsonStr)
+	}
+
+	// Explicitly verify it's not null
+	if strings.Contains(jsonStr, `"plans":null`) {
+		t.Errorf("Plans should not serialize as null, got: %s", jsonStr)
 	}
 }
 
@@ -475,6 +504,33 @@ func TestListTasksOutput_Format(t *testing.T) {
 
 	if output.Count != len(output.Tasks) {
 		t.Errorf("Count mismatch: got %d, have %d results", output.Count, len(output.Tasks))
+	}
+}
+
+func TestListTasksOutput_EmptyTasksSerializesToArray(t *testing.T) {
+	// This test verifies that an empty ListTasksOutput serializes the Tasks
+	// field as an empty JSON array [], not null.
+	// The MCP schema requires "tasks" to be an array type.
+	output := tools.ListTasksOutput{
+		Tasks: []tools.TaskSummary{}, // empty slice, not nil
+		Count: 0,
+	}
+
+	data, err := json.Marshal(output)
+	if err != nil {
+		t.Fatalf("Failed to marshal output: %v", err)
+	}
+
+	jsonStr := string(data)
+
+	// Verify that tasks is an empty array, not null
+	if !strings.Contains(jsonStr, `"tasks":[]`) {
+		t.Errorf("Expected tasks to serialize as empty array, got: %s", jsonStr)
+	}
+
+	// Explicitly verify it's not null
+	if strings.Contains(jsonStr, `"tasks":null`) {
+		t.Errorf("Tasks should not serialize as null, got: %s", jsonStr)
 	}
 }
 

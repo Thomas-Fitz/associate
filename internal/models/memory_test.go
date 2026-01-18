@@ -7,7 +7,6 @@ import (
 
 func TestMemoryType_Constants(t *testing.T) {
 	// Verify all expected types are defined
-	// Note: TypeTask and TypeProject have been moved to separate Task and Plan node types
 	types := []MemoryType{TypeNote, TypeRepository, TypeGeneral}
 	expected := []string{"Note", "Repository", "Memory"}
 

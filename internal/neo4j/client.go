@@ -179,11 +179,20 @@ func (c *Client) initSchema(ctx context.Context) error {
 	session := c.Session(ctx)
 	defer session.Close(ctx)
 
-	// Create full-text index for content search
+	// Create indexes for Memory, Plan, and Task nodes
 	queries := []string{
+		// Memory indexes
 		`CREATE INDEX memory_id IF NOT EXISTS FOR (m:Memory) ON (m.id)`,
 		`CREATE INDEX memory_type IF NOT EXISTS FOR (m:Memory) ON (m.type)`,
 		`CREATE FULLTEXT INDEX memory_content IF NOT EXISTS FOR (m:Memory) ON EACH [m.content]`,
+		// Plan indexes
+		`CREATE INDEX plan_id IF NOT EXISTS FOR (p:Plan) ON (p.id)`,
+		`CREATE INDEX plan_status IF NOT EXISTS FOR (p:Plan) ON (p.status)`,
+		`CREATE FULLTEXT INDEX plan_content IF NOT EXISTS FOR (p:Plan) ON EACH [p.name, p.description]`,
+		// Task indexes
+		`CREATE INDEX task_id IF NOT EXISTS FOR (t:Task) ON (t.id)`,
+		`CREATE INDEX task_status IF NOT EXISTS FOR (t:Task) ON (t.status)`,
+		`CREATE FULLTEXT INDEX task_content IF NOT EXISTS FOR (t:Task) ON EACH [t.content]`,
 	}
 
 	for _, query := range queries {

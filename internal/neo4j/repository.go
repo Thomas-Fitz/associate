@@ -263,9 +263,10 @@ func (r *Repository) GetByID(ctx context.Context, id string) (*models.Memory, er
 }
 
 func (r *Repository) createRelationship(ctx context.Context, session neo4j.SessionWithContext, fromID, toID string, relType models.RelationType) error {
+	// Support cross-type relationships between Memory, Plan, and Task nodes
 	cypher := fmt.Sprintf(`
-MATCH (a:Memory {id: $from_id})
-MATCH (b:Memory {id: $to_id})
+MATCH (a) WHERE a.id = $from_id AND (a:Memory OR a:Plan OR a:Task)
+MATCH (b) WHERE b.id = $to_id AND (b:Memory OR b:Plan OR b:Task)
 MERGE (a)-[r:%s]->(b)
 RETURN r
 `, relType)
@@ -440,7 +441,8 @@ RETURN count(m) as deleted
 	return nil
 }
 
-// GetRelated retrieves memories related to the given ID with optional filtering
+// GetRelated retrieves nodes related to the given ID with optional filtering.
+// Supports cross-type relationships between Memory, Plan, and Task nodes.
 func (r *Repository) GetRelated(ctx context.Context, id string, relationType string, direction string, depth int) ([]models.RelatedMemoryResult, error) {
 	session := r.client.Session(ctx)
 	defer session.Close(ctx)
@@ -467,14 +469,16 @@ func (r *Repository) GetRelated(ctx context.Context, id string, relationType str
 		}
 	}
 
+	// Query across all node types (Memory, Plan, Task)
 	cypher := fmt.Sprintf(`
-MATCH (a:Memory {id: $id})%s(b:Memory)
-WHERE a <> b
-WITH DISTINCT b, r, 
+MATCH (a) WHERE a.id = $id AND (a:Memory OR a:Plan OR a:Task)
+MATCH (a)%s(b)
+WHERE a <> b AND (b:Memory OR b:Plan OR b:Task)
+WITH DISTINCT b, r, labels(b) as nodeLabels,
      CASE WHEN startNode(r[-1]) = a OR (size(r) > 1 AND startNode(r[-1]).id = $id) THEN 'outgoing' ELSE 'incoming' END as direction,
      size(r) as depth,
      type(r[-1]) as rel_type
-RETURN b, rel_type, direction, depth
+RETURN b, rel_type, direction, depth, nodeLabels
 ORDER BY depth ASC
 `, relPattern)
 
@@ -492,8 +496,56 @@ ORDER BY depth ASC
 		relType, _ := record.Get("rel_type")
 		dir, _ := record.Get("direction")
 		d, _ := record.Get("depth")
+		nodeLabels, _ := record.Get("nodeLabels")
 
-		mem := nodeToMemory(node.(neo4j.Node))
+		neo4jNode := node.(neo4j.Node)
+
+		// Determine the node type from labels
+		nodeType := "Memory"
+		if labels, ok := nodeLabels.([]any); ok {
+			for _, label := range labels {
+				if l, ok := label.(string); ok {
+					if l == "Plan" || l == "Task" {
+						nodeType = l
+						break
+					}
+				}
+			}
+		}
+
+		// Build a Memory struct to hold the result (using type field to indicate actual type)
+		mem := models.Memory{
+			ID:   getString(neo4jNode.Props, "id"),
+			Type: models.MemoryType(nodeType),
+		}
+
+		// Set content based on node type
+		if nodeType == "Plan" {
+			// For plans, use name as content
+			mem.Content = getString(neo4jNode.Props, "name")
+		} else {
+			mem.Content = getString(neo4jNode.Props, "content")
+		}
+
+		// Metadata is stored as JSON string
+		if metadataStr, ok := neo4jNode.Props["metadata"].(string); ok && metadataStr != "" {
+			mem.Metadata = jsonToMetadata(metadataStr)
+		}
+
+		if tags, ok := neo4jNode.Props["tags"].([]any); ok {
+			for _, t := range tags {
+				if s, ok := t.(string); ok {
+					mem.Tags = append(mem.Tags, s)
+				}
+			}
+		}
+
+		if createdAt, ok := neo4jNode.Props["created_at"].(time.Time); ok {
+			mem.CreatedAt = createdAt
+		}
+		if updatedAt, ok := neo4jNode.Props["updated_at"].(time.Time); ok {
+			mem.UpdatedAt = updatedAt
+		}
 
 		// Skip duplicates
 		if seen[mem.ID] {

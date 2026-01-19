@@ -7,8 +7,6 @@ type MemoryType string
 
 const (
 	TypeNote       MemoryType = "Note"
-	TypeTask       MemoryType = "Task"
-	TypeProject    MemoryType = "Project"
 	TypeRepository MemoryType = "Repository"
 	TypeGeneral    MemoryType = "Memory"
 )

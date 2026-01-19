@@ -62,9 +62,11 @@ func main() {
 
 	logger.Info("connected to Neo4j")
 
-	// Create repository and MCP server
+	// Create repositories and MCP server
 	repo := neo4j.NewRepository(client)
-	server := mcpserver.NewServer(repo, logger)
+	planRepo := neo4j.NewPlanRepository(client)
+	taskRepo := neo4j.NewTaskRepository(client)
+	server := mcpserver.NewServer(repo, planRepo, taskRepo, logger)
 
 	if *httpMode {
 		// Run as HTTP server

@@ -19,12 +19,14 @@ const (
 type Server struct {
 	mcpServer *mcp.Server
 	repo      *neo4j.Repository
+	planRepo  *neo4j.PlanRepository
+	taskRepo  *neo4j.TaskRepository
 	logger    *slog.Logger
 	handler   *tools.Handler
 }
 
 // NewServer creates a new Associate MCP server
-func NewServer(repo *neo4j.Repository, logger *slog.Logger) *Server {
+func NewServer(repo *neo4j.Repository, planRepo *neo4j.PlanRepository, taskRepo *neo4j.TaskRepository, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -40,8 +42,10 @@ func NewServer(repo *neo4j.Repository, logger *slog.Logger) *Server {
 	s := &Server{
 		mcpServer: mcpServer,
 		repo:      repo,
+		planRepo:  planRepo,
+		taskRepo:  taskRepo,
 		logger:    logger,
-		handler:   tools.NewHandler(repo, logger),
+		handler:   tools.NewHandler(repo, planRepo, taskRepo, logger),
 	}
 
 	s.registerTools()
@@ -50,12 +54,27 @@ func NewServer(repo *neo4j.Repository, logger *slog.Logger) *Server {
 
 // registerTools adds all MCP tools to the server
 func (s *Server) registerTools() {
+	// Memory tools
 	mcp.AddTool(s.mcpServer, tools.SearchTool(), s.handler.HandleSearch)
 	mcp.AddTool(s.mcpServer, tools.GetTool(), s.handler.HandleGet)
 	mcp.AddTool(s.mcpServer, tools.AddTool(), s.handler.HandleAdd)
 	mcp.AddTool(s.mcpServer, tools.UpdateTool(), s.handler.HandleUpdate)
 	mcp.AddTool(s.mcpServer, tools.DeleteTool(), s.handler.HandleDelete)
 	mcp.AddTool(s.mcpServer, tools.GetRelatedTool(), s.handler.HandleGetRelated)
+
+	// Plan tools
+	mcp.AddTool(s.mcpServer, tools.CreatePlanTool(), s.handler.HandleCreatePlan)
+	mcp.AddTool(s.mcpServer, tools.GetPlanTool(), s.handler.HandleGetPlan)
+	mcp.AddTool(s.mcpServer, tools.UpdatePlanTool(), s.handler.HandleUpdatePlan)
+	mcp.AddTool(s.mcpServer, tools.DeletePlanTool(), s.handler.HandleDeletePlan)
+	mcp.AddTool(s.mcpServer, tools.ListPlansTool(), s.handler.HandleListPlans)
+
+	// Task tools
+	mcp.AddTool(s.mcpServer, tools.CreateTaskTool(), s.handler.HandleCreateTask)
+	mcp.AddTool(s.mcpServer, tools.GetTaskTool(), s.handler.HandleGetTask)
+	mcp.AddTool(s.mcpServer, tools.UpdateTaskTool(), s.handler.HandleUpdateTask)
+	mcp.AddTool(s.mcpServer, tools.DeleteTaskTool(), s.handler.HandleDeleteTask)
+	mcp.AddTool(s.mcpServer, tools.ListTasksTool(), s.handler.HandleListTasks)
 }
 
 // HTTPHandler returns an http.Handler for the MCP server

@@ -49,3 +49,17 @@ type TaskSearchResult struct {
 	Task    Task     `json:"task"`
 	Related []string `json:"related,omitempty"`
 }
+
+// TaskInPlan represents a task with its position and dependencies within a specific plan
+type TaskInPlan struct {
+	Task      Task     `json:"task"`
+	Position  float64  `json:"position"`
+	DependsOn []string `json:"depends_on,omitempty"` // IDs of tasks this task depends on
+	Blocks    []string `json:"blocks,omitempty"`     // IDs of tasks this task blocks
+}
+
+// TaskListResult represents a task in list results, with optional position when filtered by plan
+type TaskListResult struct {
+	Task     Task     `json:"task"`
+	Position *float64 `json:"position,omitempty"` // Only set when listing tasks within a plan
+}

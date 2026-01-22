@@ -16,10 +16,19 @@ type ListTasksInput struct {
 	Limit  int      `json:"limit,omitempty" jsonschema:"Maximum number of tasks to return (default: 50)"`
 }
 
+// TaskListSummary contains summary info about a task in list results.
+// Position is only included when filtering by plan_id.
+type TaskListSummary struct {
+	ID       string   `json:"id"`
+	Content  string   `json:"content"`
+	Status   string   `json:"status"`
+	Position *float64 `json:"position,omitempty"` // Only set when listing within a plan
+}
+
 // ListTasksOutput defines the output for the list_tasks tool.
 type ListTasksOutput struct {
-	Tasks []TaskSummary `json:"tasks"`
-	Count int           `json:"count"`
+	Tasks []TaskListSummary `json:"tasks"`
+	Count int               `json:"count"`
 }
 
 // ListTasksTool returns the tool definition for list_tasks.
@@ -47,12 +56,13 @@ func (h *Handler) HandleListTasks(ctx context.Context, req *mcp.CallToolRequest,
 
 	// Convert to summaries
 	// Initialize as empty slice (not nil) to ensure JSON serializes as [] not null
-	summaries := make([]TaskSummary, 0, len(tasks))
+	summaries := make([]TaskListSummary, 0, len(tasks))
 	for _, t := range tasks {
-		summaries = append(summaries, TaskSummary{
-			ID:      t.ID,
-			Content: t.Content,
-			Status:  string(t.Status),
+		summaries = append(summaries, TaskListSummary{
+			ID:       t.Task.ID,
+			Content:  t.Task.Content,
+			Status:   string(t.Task.Status),
+			Position: t.Position,
 		})
 	}
 

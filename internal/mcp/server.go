@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/fitz/associate/internal/graph"
 	"github.com/fitz/associate/internal/mcp/tools"
-	"github.com/fitz/associate/internal/neo4j"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -18,15 +18,15 @@ const (
 // Server wraps the MCP server with Associate-specific configuration
 type Server struct {
 	mcpServer *mcp.Server
-	repo      *neo4j.Repository
-	planRepo  *neo4j.PlanRepository
-	taskRepo  *neo4j.TaskRepository
+	repo      *graph.Repository
+	planRepo  *graph.PlanRepository
+	taskRepo  *graph.TaskRepository
 	logger    *slog.Logger
 	handler   *tools.Handler
 }
 
 // NewServer creates a new Associate MCP server
-func NewServer(repo *neo4j.Repository, planRepo *neo4j.PlanRepository, taskRepo *neo4j.TaskRepository, logger *slog.Logger) *Server {
+func NewServer(repo *graph.Repository, planRepo *graph.PlanRepository, taskRepo *graph.TaskRepository, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -75,6 +75,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer, tools.UpdateTaskTool(), s.handler.HandleUpdateTask)
 	mcp.AddTool(s.mcpServer, tools.DeleteTaskTool(), s.handler.HandleDeleteTask)
 	mcp.AddTool(s.mcpServer, tools.ListTasksTool(), s.handler.HandleListTasks)
+	mcp.AddTool(s.mcpServer, tools.ReorderTasksTool(), s.handler.HandleReorderTasks)
 }
 
 // HTTPHandler returns an http.Handler for the MCP server

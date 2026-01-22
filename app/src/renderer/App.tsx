@@ -1,0 +1,53 @@
+import React from 'react'
+import { Sidebar } from './components/Sidebar'
+import { PlanningWindow } from './components/PlanningWindow'
+import { CanvasContextMenu, TaskContextMenu, EdgeContextMenu } from './components/ContextMenu'
+import { DeleteTaskDialog, DeleteEdgeDialog } from './components/Dialogs'
+import { useAppStore } from './stores/appStore'
+
+export default function App() {
+  const { contextMenu, hideContextMenu } = useAppStore()
+  
+  return (
+    <div className="flex h-screen w-screen overflow-hidden">
+      {/* Sidebar */}
+      <Sidebar />
+      
+      {/* Main Planning Window */}
+      <PlanningWindow />
+      
+      {/* Context Menus */}
+      {contextMenu?.visible && contextMenu.type === 'canvas' && (
+        <CanvasContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          canvasX={contextMenu.canvasX}
+          canvasY={contextMenu.canvasY}
+          onClose={hideContextMenu}
+        />
+      )}
+      
+      {contextMenu?.visible && contextMenu.type === 'task' && contextMenu.taskId && (
+        <TaskContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          taskId={contextMenu.taskId}
+          onClose={hideContextMenu}
+        />
+      )}
+      
+      {contextMenu?.visible && contextMenu.type === 'edge' && contextMenu.edgeId && (
+        <EdgeContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          edgeId={contextMenu.edgeId}
+          onClose={hideContextMenu}
+        />
+      )}
+      
+      {/* Dialogs */}
+      <DeleteTaskDialog />
+      <DeleteEdgeDialog />
+    </div>
+  )
+}

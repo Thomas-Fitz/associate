@@ -494,7 +494,7 @@ func TestListTasksInput_Validation(t *testing.T) {
 
 func TestListTasksOutput_Format(t *testing.T) {
 	output := tools.ListTasksOutput{
-		Tasks: []tools.TaskSummary{
+		Tasks: []tools.TaskListSummary{
 			{ID: "task-1", Content: "Task 1", Status: "pending"},
 			{ID: "task-2", Content: "Task 2", Status: "in_progress"},
 			{ID: "task-3", Content: "Task 3", Status: "completed"},
@@ -512,7 +512,7 @@ func TestListTasksOutput_EmptyTasksSerializesToArray(t *testing.T) {
 	// field as an empty JSON array [], not null.
 	// The MCP schema requires "tasks" to be an array type.
 	output := tools.ListTasksOutput{
-		Tasks: []tools.TaskSummary{}, // empty slice, not nil
+		Tasks: []tools.TaskListSummary{}, // empty slice, not nil
 		Count: 0,
 	}
 

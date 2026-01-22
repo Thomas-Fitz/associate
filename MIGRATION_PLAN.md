@@ -17,8 +17,9 @@ This document outlines the complete migration of the Associate MCP server from N
 ## Decisions
 
 - **PostgreSQL version**: 17 with AGE 1.6.0
-- **Full-text search**: pg_trgm extension for all node types (Memory, Plan, Task). Hard dependency — no fallback.
-- **Go driver**: Official AGE driver (fallback to lib/pq if problematic)
+- **Full-text search**: pg_trgm extension for all node types (Memory, Plan, Task). Hard dependency — no fallback. Uses `similarity()` for ranked scoring.
+- **Search implementation**: Raw SQL on AGE label tables (not Cypher ILIKE). Two-phase: SQL for matching + scoring, then Cypher for related IDs.
+- **Go driver**: Official AGE driver — verified via Task 1.4 spike before use (fallback to lib/pq thin wrapper if problematic)
 - **Migration approach**: Full cutover (drop Neo4j entirely)
 - **Package naming**: Generic (`internal/graph/`)
 - **Environment variables**: Generic (`DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE`)
@@ -29,6 +30,10 @@ This document outlines the complete migration of the Associate MCP server from N
 - **Node type detection**: Store explicit `node_type` property on every node (do not rely on AGE `labels()` function)
 - **Transaction rollback**: `defer tx.Rollback()` pattern — AGE transactions handle atomicity natively, no best-effort delete needed
 - **Indexes**: Created on AGE internal label tables in `initSchema()` using raw SQL
+- **Query security**: Hybrid approach — use driver parameterization where supported, `ValidateRelationType()` for relationship types, `EscapeCypherString()` (hardened) for interpolated values
+- **Tags storage**: Native Cypher array properties via `tagsToCypherList()` (not JSON strings)
+- **Cascade delete**: Multi-step Go loop in single transaction (avoids FOREACH/NOT EXISTS)
+- **Phase 3.5 as hard gate**: Compatibility tests must pass or fallback code must be written before Phase 4 begins
 
 ---
 
@@ -140,13 +145,17 @@ ENTRYPOINT ["/associate"]
 
 **File**: `go.mod`
 
+> **PREREQUISITE**: Before proceeding, complete Task 1.4 (AGE Driver Verification) to confirm
+> the driver import path and API surface. If the driver is not viable, use `lib/pq` directly
+> with the thin wrapper approach described in Task 1.4.
+
 ```go
 module github.com/fitz/associate
 
 go 1.25.5
 
 require (
-    github.com/apache/age/drivers/golang v0.0.0  // Use latest release tag
+    github.com/apache/age/drivers/golang v0.0.0  // Pin to verified release tag from Task 1.4
     github.com/google/uuid v1.6.0
     github.com/lib/pq v1.10.9
     github.com/modelcontextprotocol/go-sdk v1.2.0
@@ -160,6 +169,115 @@ Run:
 go get github.com/apache/age/drivers/golang@latest
 go get github.com/lib/pq@latest
 go mod tidy
+```
+
+### Task 1.4: AGE Driver Verification Spike
+
+**BLOCKING**: This task must pass before Phase 3 begins. If the driver is not viable,
+all Phase 3+ code must use `lib/pq` directly with a thin internal wrapper.
+
+Create a standalone test that verifies the AGE Go driver against a running AGE instance:
+
+```go
+// internal/graph/driver_spike_test.go
+// +build spike
+
+package graph
+
+import (
+    "database/sql"
+    "testing"
+
+    _ "github.com/lib/pq"
+    "github.com/apache/age/drivers/golang/age"
+)
+
+func TestAGEDriverSpike(t *testing.T) {
+    db, err := sql.Open("postgres", "host=localhost port=5432 user=associate password=password dbname=associate sslmode=disable")
+    if err != nil {
+        t.Fatalf("sql.Open: %v", err)
+    }
+    defer db.Close()
+
+    // 1. Verify age.GetReady works
+    _, err = age.GetReady(db, "spike_test")
+    if err != nil {
+        t.Fatalf("age.GetReady: %v", err)
+    }
+
+    tx, err := db.Begin()
+    if err != nil {
+        t.Fatalf("Begin: %v", err)
+    }
+    defer tx.Rollback()
+
+    // 2. Verify ExecCypher with numResults=0 (CREATE without RETURN)
+    _, err = age.ExecCypher(tx, "spike_test", 0,
+        "CREATE (n:Test {id: 'spike1', name: 'hello'})")
+    if err != nil {
+        t.Errorf("ExecCypher CREATE (numResults=0): %v — MUST add RETURN clause to all CREATEs", err)
+    }
+
+    // 3. Verify ExecCypher with numResults=1 (MATCH with RETURN)
+    cursor, err := age.ExecCypher(tx, "spike_test", 1,
+        "MATCH (n:Test {id: 'spike1'}) RETURN n")
+    if err != nil {
+        t.Fatalf("ExecCypher MATCH: %v", err)
+    }
+
+    // 4. Verify Cursor iteration and Vertex type assertion
+    if !cursor.Next() {
+        t.Fatal("Expected at least one row from MATCH")
+    }
+    row, err := cursor.GetRow()
+    if err != nil {
+        t.Fatalf("GetRow: %v", err)
+    }
+
+    // 5. Verify Vertex.Props() returns expected map
+    vertex, ok := row[0].(*age.Vertex)
+    if !ok {
+        t.Fatalf("Expected *age.Vertex, got %T", row[0])
+    }
+    props := vertex.Props()
+    if props["id"] != "spike1" {
+        t.Errorf("Expected id='spike1', got %v", props["id"])
+    }
+
+    // 6. Verify parameterized args (if supported)
+    // NOTE: If this fails, all queries must use EscapeCypherString + fmt.Sprintf
+    _, err = age.ExecCypher(tx, "spike_test", 0,
+        "CREATE (n:Test {id: $1, name: $2})", "spike2", "world")
+    if err != nil {
+        t.Logf("WARNING: Parameterized args NOT supported: %v", err)
+        t.Log("All value interpolation must use EscapeCypherString()")
+    } else {
+        t.Log("OK: Parameterized args supported — use for all values")
+    }
+
+    // Cleanup
+    age.ExecCypher(tx, "spike_test", 0, "MATCH (n:Test) DETACH DELETE n")
+    tx.Commit()
+
+    // 7. Drop the test graph
+    db.Exec("SELECT drop_graph('spike_test', true)")
+}
+```
+
+**Pass criteria**:
+- Steps 1-5 must pass (driver loads, basic CRUD works, Vertex API matches assumptions)
+- Step 6 documents whether parameterization is available (informs Issue #1 approach)
+
+**If the driver fails**: Write a thin `internal/graph/ageutil` package wrapping `lib/pq`:
+```go
+// Fallback: internal/graph/ageutil/exec.go
+package ageutil
+
+func ExecCypher(tx *sql.Tx, graph string, cypher string) (*sql.Rows, error) {
+    sql := fmt.Sprintf("SELECT * FROM cypher('%s', $$ %s $$) as (v agtype)", graph, cypher)
+    return tx.Query(sql)
+}
+// + agtype parsing helpers
 ```
 
 ---
@@ -435,9 +553,35 @@ import (
     "github.com/fitz/associate/internal/models"
 )
 
-// ExecCypher is a convenience wrapper for age.ExecCypher
+// ExecCypher is a convenience wrapper for age.ExecCypher.
+// Use the `args` parameter for value parameterization wherever the driver supports it.
+// String interpolation should ONLY be used for label/relationship type names (which
+// cannot be parameterized in Cypher). All interpolated values must pass through
+// EscapeCypherString() or ValidateRelationType() first.
 func ExecCypher(tx *sql.Tx, graphName string, numResults int, cypher string, args ...interface{}) (*age.Cursor, error) {
     return age.ExecCypher(tx, graphName, numResults, cypher, args...)
+}
+
+// ValidRelationTypes is the complete set of allowed relationship type names.
+// Used to validate user input before interpolation into Cypher queries.
+var ValidRelationTypes = map[models.RelationType]bool{
+    models.RelRelatesTo:  true,
+    models.RelPartOf:     true,
+    models.RelReferences: true,
+    models.RelDependsOn:  true,
+    models.RelBlocks:     true,
+    models.RelFollows:    true,
+    models.RelImplements: true,
+}
+
+// ValidateRelationType checks that a relationship type is one of the known constants.
+// Returns an error if the type is not in the allowlist. This MUST be called before
+// interpolating a relationship type into a Cypher query to prevent injection.
+func ValidateRelationType(relType models.RelationType) error {
+    if !ValidRelationTypes[relType] {
+        return fmt.Errorf("invalid relationship type: %q", relType)
+    }
+    return nil
 }
 
 // NOTE: All nodes store a `node_type` property ('Memory', 'Plan', 'Task') for reliable
@@ -587,13 +731,6 @@ func getStringProp(props map[string]interface{}, key string) string {
     return ""
 }
 
-func getFloat64Prop(props map[string]interface{}, key string) float64 {
-    if v, ok := props[key].(float64); ok {
-        return v
-    }
-    return 0
-}
-
 func metadataToJSON(m map[string]string) string {
     if len(m) == 0 {
         return ""
@@ -605,34 +742,45 @@ func metadataToJSON(m map[string]string) string {
     return string(b)
 }
 
-func tagsToJSON(tags []string) string {
+// tagsToCypherList converts a Go string slice to a Cypher list literal.
+// Returns a string like "['foo', 'bar']" for use in CREATE/SET queries.
+// Tags are stored as native Cypher array properties so that the IN operator
+// works correctly (e.g., WHERE 'tag' IN n.tags).
+func tagsToCypherList(tags []string) string {
     if len(tags) == 0 {
         return "[]"
     }
-    b, err := json.Marshal(tags)
-    if err != nil {
-        return "[]"
+    escaped := make([]string, len(tags))
+    for i, t := range tags {
+        escaped[i] = fmt.Sprintf("'%s'", EscapeCypherString(t))
     }
-    return string(b)
+    return "[" + strings.Join(escaped, ", ") + "]"
 }
 
-func joinStrings(strs []string, sep string) string {
-    return strings.Join(strs, sep)
-}
-
-// EscapeCypherString escapes a string for use in Cypher queries
-// This prevents injection attacks when using string formatting
+// EscapeCypherString escapes a string for safe interpolation into Cypher queries.
+// This prevents injection attacks when using string formatting for property values.
+// NOTE: Prefer using driver parameterization (args) wherever possible. Only use
+// this function for values that must be interpolated (e.g., inside format strings
+// where the driver doesn't support positional params for that context).
 func EscapeCypherString(s string) string {
     s = strings.ReplaceAll(s, "\\", "\\\\")
     s = strings.ReplaceAll(s, "'", "\\'")
     s = strings.ReplaceAll(s, "\"", "\\\"")
+    s = strings.ReplaceAll(s, "\n", "\\n")
+    s = strings.ReplaceAll(s, "\r", "\\r")
+    s = strings.ReplaceAll(s, "\t", "\\t")
+    s = strings.ReplaceAll(s, "\x00", "") // Strip null bytes
     return s
 }
 ```
 
 ---
 
-## Phase 3.5: AGE Cypher Compatibility Validation
+## Phase 3.5: AGE Cypher Compatibility Validation (HARD GATE)
+
+> **BLOCKING**: Phase 4 CANNOT proceed until all tests in this phase pass OR fallback
+> implementations are written for any failing features. This phase produces a concrete
+> pass/fail report that determines which code paths are used in Phase 4.
 
 Before implementing the repository layer, validate that all required Cypher features work correctly in AGE. Create a test file that exercises each feature against a running AGE instance.
 
@@ -654,7 +802,7 @@ This test should validate the following Cypher features used by the application:
 | Variable-length paths | `[r*1..N]` | GetRelated |
 | `OPTIONAL MATCH` | Multiple patterns | GetByIDWithRelated, GetWithTasks |
 | Map literals in RETURN | `{id: n.id, type: n.type}` | GetByIDWithRelated |
-| `ILIKE` (via pg_trgm) | `m.content ILIKE '%query%'` | Search |
+| `ILIKE` (via pg_trgm) | `m.content ILIKE '%query%'` | Search (EXPECTED TO FAIL — confirms raw SQL approach) |
 | Relationship properties | `r.position` on PART_OF | Task ordering |
 | `SET` on relationship | `SET r.position = $pos` | UpdatePositions |
 | `FOREACH` | `FOREACH (x IN list \| ...)` | Plan cascade delete |
@@ -683,7 +831,7 @@ func TestAGECypherCompatibility(t *testing.T) {
     
     // Test 6: OPTIONAL MATCH returning nulls
     
-    // Test 7: ILIKE operator (pg_trgm)
+    // Test 7: ILIKE operator (EXPECTED TO FAIL — confirms raw SQL search approach is correct)
     
     // Test 8: SET on relationship properties
     
@@ -695,16 +843,194 @@ func TestAGECypherCompatibility(t *testing.T) {
 }
 ```
 
-### Task 3.5.2: Document Alternatives
+### Task 3.5.2: Implement Fallbacks for Failing Features
 
-For any feature that fails validation, document the alternative approach:
+> **Requirement**: For each failing test, the fallback implementation MUST be written
+> and tested before Phase 4 begins. Do not proceed with "document and fix later".
 
-- **If `startNode(r[-1])` fails**: Use separate queries for outgoing and incoming, merge results in Go
-- **If `r[-1]` list indexing fails**: Use `last(r)` or unwind the path
-- **If `FOREACH` fails**: Use multiple individual DELETE statements in a loop
-- **If `NOT EXISTS {}` fails**: Use `OPTIONAL MATCH ... WHERE other IS NULL` pattern
-- **If `ILIKE` fails in Cypher**: Use raw SQL query against the AGE label table directly
-- **If map literals in collect fail**: Return individual columns and assemble in Go code
+#### Fallback: Variable-Length Path Features (r[-1], size(r), startNode())
+
+If `r[-1]`, `size(r)`, or `startNode()` fail, replace the `GetRelated` query with
+iterative depth expansion in Go:
+
+```go
+// fallback_get_related.go — used if Phase 3.5 variable-length path tests fail
+
+func (r *Repository) GetRelatedIterative(ctx context.Context, id string, relationType string, direction string, depth int) ([]models.RelatedMemoryResult, error) {
+    tx, err := r.client.BeginTx(ctx)
+    if err != nil {
+        return nil, err
+    }
+    defer tx.Rollback()
+
+    var results []models.RelatedMemoryResult
+    seen := map[string]bool{id: true}
+    frontier := []string{id}
+
+    for d := 1; d <= depth && len(frontier) > 0; d++ {
+        var nextFrontier []string
+        for _, currentID := range frontier {
+            // Build relationship pattern for this hop
+            var relPattern string
+            if relationType != "" {
+                switch direction {
+                case "outgoing":
+                    relPattern = fmt.Sprintf("-[r:%s]->", relationType)
+                case "incoming":
+                    relPattern = fmt.Sprintf("<-[r:%s]-", relationType)
+                default:
+                    relPattern = fmt.Sprintf("-[r:%s]-", relationType)
+                }
+            } else {
+                switch direction {
+                case "outgoing":
+                    relPattern = "-[r]->"
+                case "incoming":
+                    relPattern = "<-[r]-"
+                default:
+                    relPattern = "-[r]-"
+                }
+            }
+
+            cypher := fmt.Sprintf(
+                `MATCH (a {id: '%s'})%s(b)
+                 WHERE (b:Memory OR b:Plan OR b:Task)
+                 RETURN b, type(r) as rel_type, b.node_type as nodeType,
+                        CASE WHEN startNode(r) = a THEN 'outgoing' ELSE 'incoming' END as dir`,
+                EscapeCypherString(currentID), relPattern)
+
+            // If startNode() also fails, use two separate directional queries:
+            // One with -[r]-> (outgoing) and one with <-[r]- (incoming)
+
+            cursor, err := ExecCypher(tx, r.client.GraphName(), 4, cypher)
+            if err != nil {
+                continue
+            }
+
+            for cursor.Next() {
+                row, _ := cursor.GetRow()
+                vertex := row[0].(*age.Vertex)
+                nodeID := getStringProp(vertex.Props(), "id")
+                if seen[nodeID] {
+                    continue
+                }
+                seen[nodeID] = true
+                nextFrontier = append(nextFrontier, nodeID)
+
+                // Build result (same logic as primary implementation)
+                nodeType := "Memory"
+                if nt, ok := row[2].(string); ok && nt != "" {
+                    nodeType = nt
+                }
+                mem := models.Memory{ID: nodeID, Type: models.MemoryType(nodeType)}
+                if nodeType == "Plan" {
+                    mem.Content = getStringProp(vertex.Props(), "name")
+                } else {
+                    mem.Content = getStringProp(vertex.Props(), "content")
+                }
+
+                relTypeStr, _ := row[1].(string)
+                dirStr, _ := row[3].(string)
+
+                results = append(results, models.RelatedMemoryResult{
+                    Memory:       mem,
+                    RelationType: relTypeStr,
+                    Direction:    dirStr,
+                    Depth:        d,
+                })
+            }
+        }
+        frontier = nextFrontier
+    }
+
+    tx.Commit()
+    return results, nil
+}
+```
+
+#### Fallback: Map Literals in collect()
+
+If `collect(DISTINCT {id: n.id, ...})` fails, split `GetByIDWithRelated` into
+separate queries:
+
+```go
+// fallback_get_with_related.go — used if Phase 3.5 map literal tests fail
+
+func (r *Repository) GetByIDWithRelatedSplit(ctx context.Context, id string) (*models.Memory, []models.RelatedInfo, error) {
+    tx, err := r.client.BeginTx(ctx)
+    if err != nil {
+        return nil, nil, err
+    }
+    defer tx.Rollback()
+
+    // Query 1: Get the memory itself
+    cursor, err := ExecCypher(tx, r.client.GraphName(), 1,
+        fmt.Sprintf("MATCH (m:Memory {id: '%s'}) RETURN m", EscapeCypherString(id)))
+    if err != nil {
+        return nil, nil, err
+    }
+    if !cursor.Next() {
+        return nil, nil, nil
+    }
+    row, _ := cursor.GetRow()
+    mem := VertexToMemory(row[0].(*age.Vertex))
+
+    var related []models.RelatedInfo
+
+    // Query 2: Get outgoing relationships
+    cursor, err = ExecCypher(tx, r.client.GraphName(), 3,
+        fmt.Sprintf(
+            `MATCH (m:Memory {id: '%s'})-[r]->(out:Memory)
+             RETURN out.id, out.type, type(r)`,
+            EscapeCypherString(id)))
+    if err == nil {
+        for cursor.Next() {
+            row, _ := cursor.GetRow()
+            relID, _ := row[0].(string)
+            if relID == "" {
+                continue
+            }
+            related = append(related, models.RelatedInfo{
+                ID:           relID,
+                Type:         models.MemoryType(fmt.Sprintf("%v", row[1])),
+                RelationType: fmt.Sprintf("%v", row[2]),
+                Direction:    "outgoing",
+            })
+        }
+    }
+
+    // Query 3: Get incoming relationships
+    cursor, err = ExecCypher(tx, r.client.GraphName(), 3,
+        fmt.Sprintf(
+            `MATCH (inc:Memory)-[r]->(m:Memory {id: '%s'})
+             RETURN inc.id, inc.type, type(r)`,
+            EscapeCypherString(id)))
+    if err == nil {
+        for cursor.Next() {
+            row, _ := cursor.GetRow()
+            relID, _ := row[0].(string)
+            if relID == "" {
+                continue
+            }
+            related = append(related, models.RelatedInfo{
+                ID:           relID,
+                Type:         models.MemoryType(fmt.Sprintf("%v", row[1])),
+                RelationType: fmt.Sprintf("%v", row[2]),
+                Direction:    "incoming",
+            })
+        }
+    }
+
+    tx.Commit()
+    return &mem, related, nil
+}
+```
+
+#### Other Fallbacks (Already Resolved)
+
+- **`FOREACH`**: Resolved — Plan.Delete uses multi-step Go loop (Task 4.2)
+- **`NOT EXISTS {}`**: Resolved — Plan.Delete uses per-task existence checks (Task 4.2)
+- **`ILIKE` in Cypher**: Resolved — Search uses raw SQL on label tables (Task 4.1)
 
 ---
 
@@ -716,7 +1042,7 @@ For any feature that fails validation, document the alternative approach:
 
 Key query translations:
 
-#### Search (pg_trgm with related IDs)
+#### Search (Raw SQL + pg_trgm similarity scoring + Cypher for relationships)
 
 **Neo4j**:
 ```cypher
@@ -728,10 +1054,14 @@ RETURN node, score, collect(DISTINCT related.id) as related_ids
 
 **AGE**:
 
-> **Important**: Search uses pg_trgm for case-insensitive fuzzy matching with similarity scoring.
-> This requires pg_trgm indexes on the AGE label tables (created in `initSchema()`).
-> Also searches by ID (preserving current fallback behavior).
-> No fallback mechanism — pg_trgm is a hard dependency.
+> **Important**: Search uses a two-phase approach:
+> 1. **Phase 1 (SQL)**: Query the AGE label table directly using pg_trgm `similarity()`
+>    for ranked fuzzy matching. This leverages the GIN trigram indexes created in `initSchema()`.
+>    ILIKE is NOT valid Cypher — we must query the label table via raw SQL.
+> 2. **Phase 2 (Cypher)**: For each matched memory, fetch related Memory IDs via Cypher
+>    to preserve the API response shape.
+>
+> pg_trgm is a hard dependency — no fallback.
 
 ```go
 func (r *Repository) Search(ctx context.Context, query string, limit int) ([]models.SearchResult, error) {
@@ -745,49 +1075,123 @@ func (r *Repository) Search(ctx context.Context, query string, limit int) ([]mod
     }
     defer tx.Rollback()
 
-    escapedQuery := EscapeCypherString(query)
-    
-    // Search content and ID using pg_trgm similarity (via ILIKE for trigram index usage)
-    // Also collect related Memory IDs (preserves API response shape)
-    cursor, err := ExecCypher(tx, r.client.GraphName(), 2,
-        `MATCH (m:Memory) 
-         WHERE m.content ILIKE '%%%s%%' OR m.id ILIKE '%%%s%%'
-         OPTIONAL MATCH (m)-[:RELATES_TO|PART_OF|REFERENCES|DEPENDS_ON|BLOCKS|FOLLOWS|IMPLEMENTS]-(related:Memory)
-         RETURN m, collect(DISTINCT related.id) as related_ids
-         LIMIT %d`,
-        escapedQuery, escapedQuery, limit)
+    // Phase 1: Raw SQL query on AGE label table with pg_trgm similarity scoring.
+    // Uses the GIN trigram index on (properties->>'content') for performance.
+    // Also matches by ID for exact-match lookups.
+    sqlQuery := fmt.Sprintf(`
+        SELECT properties,
+               GREATEST(
+                   similarity(properties->>'content', $1),
+                   similarity(properties->>'id', $1)
+               ) as score
+        FROM %s."Memory"
+        WHERE properties->>'content' ILIKE '%%' || $1 || '%%'
+           OR properties->>'id' ILIKE '%%' || $1 || '%%'
+        ORDER BY score DESC
+        LIMIT $2`,
+        GraphName)
+
+    rows, err := tx.Query(sqlQuery, query, limit)
     if err != nil {
-        return nil, fmt.Errorf("search failed: %w", err)
+        return nil, fmt.Errorf("search query failed: %w", err)
+    }
+    defer rows.Close()
+
+    type searchHit struct {
+        mem   models.Memory
+        score float64
+    }
+    var hits []searchHit
+
+    for rows.Next() {
+        var propsJSON string
+        var score float64
+        if err := rows.Scan(&propsJSON, &score); err != nil {
+            return nil, fmt.Errorf("scan failed: %w", err)
+        }
+
+        var props map[string]interface{}
+        if err := json.Unmarshal([]byte(propsJSON), &props); err != nil {
+            continue
+        }
+
+        mem := propsToMemory(props)
+        hits = append(hits, searchHit{mem: mem, score: score})
+    }
+    if err := rows.Err(); err != nil {
+        return nil, err
     }
 
+    // Phase 2: For each hit, fetch related Memory IDs via Cypher.
     var results []models.SearchResult
-    for cursor.Next() {
-        row, err := cursor.GetRow()
-        if err != nil {
-            return nil, err
-        }
-        vertex := row[0].(*age.Vertex)
-        mem := VertexToMemory(vertex)
-        
+    for _, hit := range hits {
         sr := models.SearchResult{
-            Memory: mem,
-            Score:  1.0, // pg_trgm ILIKE doesn't provide scoring; use similarity() for ranked results if needed
+            Memory: hit.mem,
+            Score:  hit.score,
         }
-        
-        // Extract related IDs
-        if relatedIDs, ok := row[1].([]interface{}); ok {
-            for _, id := range relatedIDs {
-                if s, ok := id.(string); ok && s != "" {
-                    sr.Related = append(sr.Related, s)
+
+        // Fetch related IDs (best-effort — don't fail the search if this errors)
+        cursor, err := ExecCypher(tx, r.client.GraphName(), 1,
+            fmt.Sprintf(
+                `MATCH (m:Memory {id: '%s'})-[:RELATES_TO|PART_OF|REFERENCES|DEPENDS_ON|BLOCKS|FOLLOWS|IMPLEMENTS]-(related:Memory)
+                 RETURN collect(DISTINCT related.id) as related_ids`,
+                EscapeCypherString(hit.mem.ID)))
+        if err == nil && cursor.Next() {
+            row, _ := cursor.GetRow()
+            if relatedIDs, ok := row[0].([]interface{}); ok {
+                for _, id := range relatedIDs {
+                    if s, ok := id.(string); ok && s != "" {
+                        sr.Related = append(sr.Related, s)
+                    }
                 }
             }
         }
-        
+
         results = append(results, sr)
     }
 
     tx.Commit()
     return results, nil
+}
+
+// propsToMemory converts a JSONB properties map to a Memory struct.
+// Used when querying AGE label tables directly via SQL.
+func propsToMemory(props map[string]interface{}) models.Memory {
+    mem := models.Memory{
+        ID:      getStringProp(props, "id"),
+        Type:    models.MemoryType(getStringProp(props, "type")),
+        Content: getStringProp(props, "content"),
+    }
+
+    if metaStr := getStringProp(props, "metadata"); metaStr != "" {
+        var meta map[string]string
+        if err := json.Unmarshal([]byte(metaStr), &meta); err == nil {
+            mem.Metadata = meta
+        }
+    }
+
+    if tagsRaw, ok := props["tags"]; ok {
+        if tagsArr, ok := tagsRaw.([]interface{}); ok {
+            for _, t := range tagsArr {
+                if s, ok := t.(string); ok {
+                    mem.Tags = append(mem.Tags, s)
+                }
+            }
+        }
+    }
+
+    if createdStr := getStringProp(props, "created_at"); createdStr != "" {
+        if t, err := time.Parse(time.RFC3339, createdStr); err == nil {
+            mem.CreatedAt = t
+        }
+    }
+    if updatedStr := getStringProp(props, "updated_at"); updatedStr != "" {
+        if t, err := time.Parse(time.RFC3339, updatedStr); err == nil {
+            mem.UpdatedAt = t
+        }
+    }
+
+    return mem
 }
 ```
 
@@ -821,27 +1225,28 @@ func (r *Repository) Add(ctx context.Context, mem models.Memory, relationships [
     }
 
     metadataJSON := metadataToJSON(mem.Metadata)
-    tagsJSON := tagsToJSON(mem.Tags)
+    tagsList := tagsToCypherList(mem.Tags)
 
     _, err = ExecCypher(tx, r.client.GraphName(), 0,
-        `CREATE (m:Memory {
-            id: '%s',
-            node_type: 'Memory',
-            type: '%s',
-            content: '%s',
-            metadata: '%s',
-            tags: %s,
-            created_at: '%s',
-            updated_at: '%s'
-        })`,
-        EscapeCypherString(mem.ID),
-        EscapeCypherString(string(mem.Type)),
-        EscapeCypherString(mem.Content),
-        EscapeCypherString(metadataJSON),
-        tagsJSON,
-        mem.CreatedAt.Format(time.RFC3339),
-        mem.UpdatedAt.Format(time.RFC3339),
-    )
+        fmt.Sprintf(
+            `CREATE (m:Memory {
+                id: '%s',
+                node_type: 'Memory',
+                type: '%s',
+                content: '%s',
+                metadata: '%s',
+                tags: %s,
+                created_at: '%s',
+                updated_at: '%s'
+            })`,
+            EscapeCypherString(mem.ID),
+            EscapeCypherString(string(mem.Type)),
+            EscapeCypherString(mem.Content),
+            EscapeCypherString(metadataJSON),
+            tagsList,
+            mem.CreatedAt.Format(time.RFC3339),
+            mem.UpdatedAt.Format(time.RFC3339),
+        ))
     if err != nil {
         return nil, fmt.Errorf("failed to create memory: %w", err)
     }
@@ -944,18 +1349,27 @@ MERGE (a)-[r:RELATES_TO]->(b)
 > - Duplicate edges are functionally harmless (queries use `DISTINCT` and Go-level dedup)
 > - Concurrent writes to the same relationship pair are extremely unlikely in MCP usage
 > - The simplicity trade-off is worthwhile vs. SERIALIZABLE isolation or UNIQUE constraints
+>
+> **Security**: relType MUST be validated against the allowlist before interpolation.
+> It cannot be parameterized because Cypher requires literal label/type names.
 
 ```go
 func (r *Repository) createRelationship(tx *sql.Tx, fromID, toID string, relType models.RelationType) error {
+    // Validate relationship type against allowlist before interpolation
+    if err := ValidateRelationType(relType); err != nil {
+        return err
+    }
+
     // Check if relationship already exists to avoid duplicates (AGE doesn't support MERGE)
     cursor, err := ExecCypher(tx, r.client.GraphName(), 1,
-        `MATCH (a)-[r:%s]->(b) 
-         WHERE a.id = '%s' AND b.id = '%s' 
-         RETURN r`,
-        relType,
-        EscapeCypherString(fromID),
-        EscapeCypherString(toID),
-    )
+        fmt.Sprintf(
+            `MATCH (a)-[r:%s]->(b) 
+             WHERE a.id = '%s' AND b.id = '%s' 
+             RETURN r`,
+            relType,
+            EscapeCypherString(fromID),
+            EscapeCypherString(toID),
+        ))
     if err != nil {
         return err
     }
@@ -967,13 +1381,14 @@ func (r *Repository) createRelationship(tx *sql.Tx, fromID, toID string, relType
     
     // Create the relationship
     _, err = ExecCypher(tx, r.client.GraphName(), 0,
-        `MATCH (a), (b) 
-         WHERE a.id = '%s' AND b.id = '%s' 
-         CREATE (a)-[r:%s]->(b)`,
-        EscapeCypherString(fromID),
-        EscapeCypherString(toID),
-        relType, // Relationship type is safe (enum)
-    )
+        fmt.Sprintf(
+            `MATCH (a), (b) 
+             WHERE a.id = '%s' AND b.id = '%s' 
+             CREATE (a)-[r:%s]->(b)`,
+            EscapeCypherString(fromID),
+            EscapeCypherString(toID),
+            relType, // Validated above
+        ))
     return err
 }
 ```
@@ -1245,30 +1660,31 @@ func (r *PlanRepository) Add(ctx context.Context, plan models.Plan, relationship
     }
 
     metadataJSON := metadataToJSON(plan.Metadata)
-    tagsJSON := tagsToJSON(plan.Tags)
+    tagsList := tagsToCypherList(plan.Tags)
 
     // Create plan vertex with node_type property for type detection
     _, err = ExecCypher(tx, r.client.GraphName(), 0,
-        `CREATE (p:Plan {
-            id: '%s',
-            node_type: 'Plan',
-            name: '%s',
-            description: '%s',
-            status: '%s',
-            metadata: '%s',
-            tags: %s,
-            created_at: '%s',
-            updated_at: '%s'
-        })`,
-        EscapeCypherString(plan.ID),
-        EscapeCypherString(plan.Name),
-        EscapeCypherString(plan.Description),
-        EscapeCypherString(string(plan.Status)),
-        EscapeCypherString(metadataJSON),
-        tagsJSON,
-        plan.CreatedAt.Format(time.RFC3339),
-        plan.UpdatedAt.Format(time.RFC3339),
-    )
+        fmt.Sprintf(
+            `CREATE (p:Plan {
+                id: '%s',
+                node_type: 'Plan',
+                name: '%s',
+                description: '%s',
+                status: '%s',
+                metadata: '%s',
+                tags: %s,
+                created_at: '%s',
+                updated_at: '%s'
+            })`,
+            EscapeCypherString(plan.ID),
+            EscapeCypherString(plan.Name),
+            EscapeCypherString(plan.Description),
+            EscapeCypherString(string(plan.Status)),
+            EscapeCypherString(metadataJSON),
+            tagsList,
+            plan.CreatedAt.Format(time.RFC3339),
+            plan.UpdatedAt.Format(time.RFC3339),
+        ))
     if err != nil {
         return nil, fmt.Errorf("failed to create plan: %w", err)
     }
@@ -1371,6 +1787,250 @@ func (r *PlanRepository) GetWithTasks(ctx context.Context, planID string) (*mode
 
     tx.Commit()
     return &plan, tasks, nil
+}
+```
+
+#### Update Plan
+
+```go
+func (r *PlanRepository) Update(ctx context.Context, id string, name, description *string, status *string, metadata map[string]string, tags []string, newRelationships []models.Relationship) (*models.Plan, error) {
+    tx, err := r.client.BeginTx(ctx)
+    if err != nil {
+        return nil, err
+    }
+    defer tx.Rollback()
+
+    // Build dynamic SET clauses
+    setClauses := []string{
+        fmt.Sprintf("p.updated_at = '%s'", time.Now().UTC().Format(time.RFC3339)),
+    }
+
+    if name != nil {
+        setClauses = append(setClauses, fmt.Sprintf("p.name = '%s'", EscapeCypherString(*name)))
+    }
+    if description != nil {
+        setClauses = append(setClauses, fmt.Sprintf("p.description = '%s'", EscapeCypherString(*description)))
+    }
+    if status != nil {
+        setClauses = append(setClauses, fmt.Sprintf("p.status = '%s'", EscapeCypherString(*status)))
+    }
+    if metadata != nil {
+        setClauses = append(setClauses, fmt.Sprintf("p.metadata = '%s'", EscapeCypherString(metadataToJSON(metadata))))
+    }
+    if tags != nil {
+        setClauses = append(setClauses, fmt.Sprintf("p.tags = %s", tagsToCypherList(tags)))
+    }
+
+    cypher := fmt.Sprintf(
+        `MATCH (p:Plan {id: '%s'}) SET %s RETURN p`,
+        EscapeCypherString(id),
+        strings.Join(setClauses, ", "),
+    )
+
+    cursor, err := ExecCypher(tx, r.client.GraphName(), 1, cypher)
+    if err != nil {
+        return nil, fmt.Errorf("failed to update plan: %w", err)
+    }
+
+    if !cursor.Next() {
+        return nil, fmt.Errorf("plan not found: %s", id)
+    }
+
+    row, _ := cursor.GetRow()
+    plan := VertexToPlan(row[0].(*age.Vertex))
+
+    // Create new relationships
+    for _, rel := range newRelationships {
+        if err := r.createRelationshipFromPlan(tx, id, rel.ToID, rel.Type); err != nil {
+            fmt.Fprintf(os.Stderr, "warning: failed to create relationship: %v\n", err)
+        }
+    }
+
+    if err := tx.Commit(); err != nil {
+        return nil, err
+    }
+    return &plan, nil
+}
+```
+
+#### List Plans
+
+> **Note**: The Neo4j version uses `any(tag IN $tags WHERE tag IN p.tags)` for tag filtering.
+> Since tags are stored as native Cypher arrays, the `IN` operator should work. However,
+> the `any()` list comprehension may not be supported in AGE. We use individual OR conditions
+> instead (same semantics: match plans containing ANY of the requested tags).
+
+```go
+func (r *PlanRepository) List(ctx context.Context, status string, tags []string, limit int) ([]models.Plan, error) {
+    tx, err := r.client.BeginTx(ctx)
+    if err != nil {
+        return nil, err
+    }
+    defer tx.Rollback()
+
+    if limit <= 0 {
+        limit = 50
+    }
+
+    whereClauses := []string{}
+    if status != "" {
+        whereClauses = append(whereClauses, fmt.Sprintf("p.status = '%s'", EscapeCypherString(status)))
+    }
+    if len(tags) > 0 {
+        // Match plans containing ANY of the requested tags
+        // Uses native Cypher IN operator on array properties
+        tagConditions := make([]string, len(tags))
+        for i, tag := range tags {
+            tagConditions[i] = fmt.Sprintf("'%s' IN p.tags", EscapeCypherString(tag))
+        }
+        whereClauses = append(whereClauses, "("+strings.Join(tagConditions, " OR ")+")")
+    }
+
+    whereClause := ""
+    if len(whereClauses) > 0 {
+        whereClause = "WHERE " + strings.Join(whereClauses, " AND ")
+    }
+
+    cypher := fmt.Sprintf(`
+        MATCH (p:Plan)
+        %s
+        RETURN p
+        ORDER BY p.updated_at DESC
+        LIMIT %d`,
+        whereClause, limit)
+
+    cursor, err := ExecCypher(tx, r.client.GraphName(), 1, cypher)
+    if err != nil {
+        return nil, fmt.Errorf("list failed: %w", err)
+    }
+
+    var plans []models.Plan
+    for cursor.Next() {
+        row, err := cursor.GetRow()
+        if err != nil {
+            return nil, err
+        }
+        plans = append(plans, VertexToPlan(row[0].(*age.Vertex)))
+    }
+
+    tx.Commit()
+    return plans, nil
+}
+```
+
+#### Delete Plan (Multi-Step Cascade)
+
+> **Important**: The Neo4j version uses `FOREACH` + `NOT EXISTS {}` in a single query to
+> cascade-delete orphaned tasks. AGE does not reliably support either construct. Instead,
+> we implement cascade delete as multiple sequential Cypher queries within a single transaction:
+> 1. Find task IDs that ONLY belong to this plan (orphans)
+> 2. DETACH DELETE each orphaned task
+> 3. DETACH DELETE the plan itself
+>
+> This is functionally equivalent and guaranteed to work in AGE.
+
+```go
+func (r *PlanRepository) Delete(ctx context.Context, id string) (int, error) {
+    tx, err := r.client.BeginTx(ctx)
+    if err != nil {
+        return 0, err
+    }
+    defer tx.Rollback()
+
+    // Step 1: Find tasks that belong ONLY to this plan (no PART_OF to other plans).
+    // We find all tasks linked to this plan, then check each for other plan links.
+    cursor, err := ExecCypher(tx, r.client.GraphName(), 1,
+        fmt.Sprintf(
+            `MATCH (t:Task)-[:PART_OF]->(p:Plan {id: '%s'})
+             RETURN t.id as task_id`,
+            EscapeCypherString(id)))
+    if err != nil {
+        return 0, fmt.Errorf("failed to find plan tasks: %w", err)
+    }
+
+    var allTaskIDs []string
+    for cursor.Next() {
+        row, _ := cursor.GetRow()
+        if taskID, ok := row[0].(string); ok {
+            allTaskIDs = append(allTaskIDs, taskID)
+        }
+    }
+
+    // Step 2: For each task, check if it belongs to another plan. Collect orphans.
+    var orphanIDs []string
+    for _, taskID := range allTaskIDs {
+        cursor, err := ExecCypher(tx, r.client.GraphName(), 1,
+            fmt.Sprintf(
+                `MATCH (t:Task {id: '%s'})-[:PART_OF]->(other:Plan)
+                 WHERE other.id <> '%s'
+                 RETURN other.id`,
+                EscapeCypherString(taskID),
+                EscapeCypherString(id)))
+        if err != nil {
+            return 0, err
+        }
+        // If no other plan found, this task is an orphan
+        if !cursor.Next() {
+            orphanIDs = append(orphanIDs, taskID)
+        }
+    }
+
+    // Step 3: DETACH DELETE each orphaned task
+    for _, taskID := range orphanIDs {
+        _, err := ExecCypher(tx, r.client.GraphName(), 0,
+            fmt.Sprintf(
+                "MATCH (t:Task {id: '%s'}) DETACH DELETE t",
+                EscapeCypherString(taskID)))
+        if err != nil {
+            return 0, fmt.Errorf("failed to delete orphan task %s: %w", taskID, err)
+        }
+    }
+
+    // Step 4: DETACH DELETE the plan itself
+    _, err = ExecCypher(tx, r.client.GraphName(), 0,
+        fmt.Sprintf(
+            "MATCH (p:Plan {id: '%s'}) DETACH DELETE p",
+            EscapeCypherString(id)))
+    if err != nil {
+        return 0, fmt.Errorf("failed to delete plan: %w", err)
+    }
+
+    if err := tx.Commit(); err != nil {
+        return 0, err
+    }
+    return len(orphanIDs), nil
+}
+
+// createRelationshipFromPlan creates a relationship from a Plan to another node (idempotent).
+func (r *PlanRepository) createRelationshipFromPlan(tx *sql.Tx, fromID, toID string, relType models.RelationType) error {
+    if err := ValidateRelationType(relType); err != nil {
+        return err
+    }
+
+    cursor, err := ExecCypher(tx, r.client.GraphName(), 1,
+        fmt.Sprintf(
+            `MATCH (a:Plan {id: '%s'})-[r:%s]->(b {id: '%s'})
+             RETURN r`,
+            EscapeCypherString(fromID),
+            relType,
+            EscapeCypherString(toID),
+        ))
+    if err != nil {
+        return err
+    }
+    if cursor.Next() {
+        return nil // Already exists
+    }
+
+    _, err = ExecCypher(tx, r.client.GraphName(), 0,
+        fmt.Sprintf(
+            `MATCH (a:Plan {id: '%s'}), (b) WHERE b.id = '%s' AND (b:Memory OR b:Plan OR b:Task)
+             CREATE (a)-[r:%s]->(b)`,
+            EscapeCypherString(fromID),
+            EscapeCypherString(toID),
+            relType,
+        ))
+    return err
 }
 ```
 
@@ -1631,24 +2291,25 @@ func (r *TaskRepository) Add(ctx context.Context, task models.Task, planIDs []st
 
     // Create task vertex with node_type property for type detection
     _, err = ExecCypher(tx, r.client.GraphName(), 0,
-        `CREATE (t:Task {
-            id: '%s',
-            node_type: 'Task',
-            content: '%s',
-            status: '%s',
-            metadata: '%s',
-            tags: %s,
-            created_at: '%s',
-            updated_at: '%s'
-        })`,
-        EscapeCypherString(task.ID),
-        EscapeCypherString(task.Content),
-        EscapeCypherString(string(task.Status)),
-        EscapeCypherString(metadataToJSON(task.Metadata)),
-        tagsToJSON(task.Tags),
-        task.CreatedAt.Format(time.RFC3339),
-        task.UpdatedAt.Format(time.RFC3339),
-    )
+        fmt.Sprintf(
+            `CREATE (t:Task {
+                id: '%s',
+                node_type: 'Task',
+                content: '%s',
+                status: '%s',
+                metadata: '%s',
+                tags: %s,
+                created_at: '%s',
+                updated_at: '%s'
+            })`,
+            EscapeCypherString(task.ID),
+            EscapeCypherString(task.Content),
+            EscapeCypherString(string(task.Status)),
+            EscapeCypherString(metadataToJSON(task.Metadata)),
+            tagsToCypherList(task.Tags),
+            task.CreatedAt.Format(time.RFC3339),
+            task.UpdatedAt.Format(time.RFC3339),
+        ))
     if err != nil {
         return nil, fmt.Errorf("failed to create task: %w", err)
     }
@@ -1688,14 +2349,20 @@ func (r *TaskRepository) Add(ctx context.Context, task models.Task, planIDs []st
 
 // createRelationshipFromTask creates a relationship from a Task to another node (idempotent)
 func (r *TaskRepository) createRelationshipFromTask(tx *sql.Tx, fromID, toID string, relType models.RelationType) error {
+    // Validate relationship type against allowlist before interpolation
+    if err := ValidateRelationType(relType); err != nil {
+        return err
+    }
+
     // Check if relationship already exists
     cursor, err := ExecCypher(tx, r.client.GraphName(), 1,
-        `MATCH (a:Task {id: '%s'})-[r:%s]->(b {id: '%s'})
-         RETURN r`,
-        EscapeCypherString(fromID),
-        relType,
-        EscapeCypherString(toID),
-    )
+        fmt.Sprintf(
+            `MATCH (a:Task {id: '%s'})-[r:%s]->(b {id: '%s'})
+             RETURN r`,
+            EscapeCypherString(fromID),
+            relType,
+            EscapeCypherString(toID),
+        ))
     if err != nil {
         return err
     }
@@ -1704,12 +2371,13 @@ func (r *TaskRepository) createRelationshipFromTask(tx *sql.Tx, fromID, toID str
     }
 
     _, err = ExecCypher(tx, r.client.GraphName(), 0,
-        `MATCH (a:Task {id: '%s'}), (b) WHERE b.id = '%s' AND (b:Memory OR b:Plan OR b:Task)
-         CREATE (a)-[r:%s]->(b)`,
-        EscapeCypherString(fromID),
-        EscapeCypherString(toID),
-        relType,
-    )
+        fmt.Sprintf(
+            `MATCH (a:Task {id: '%s'}), (b) WHERE b.id = '%s' AND (b:Memory OR b:Plan OR b:Task)
+             CREATE (a)-[r:%s]->(b)`,
+            EscapeCypherString(fromID),
+            EscapeCypherString(toID),
+            relType,
+        ))
     return err
 }
 ```
@@ -1814,7 +2482,7 @@ func (r *TaskRepository) List(ctx context.Context, planID string, status string,
 }
 ```
 
-#### GetByID, GetWithPlans, Update, Delete
+#### GetByID, GetWithPlans, Delete
 
 ```go
 func (r *TaskRepository) GetByID(ctx context.Context, id string) (*models.Task, error) {
@@ -1894,6 +2562,113 @@ func (r *TaskRepository) Delete(ctx context.Context, id string) error {
     }
 
     return tx.Commit()
+}
+```
+
+#### Update Task
+
+Handles partial property updates, adding to new plans (with position calculation),
+and creating new relationships. Mirrors the Neo4j implementation's full feature set.
+
+```go
+func (r *TaskRepository) Update(ctx context.Context, id string, content *string, status *string, metadata map[string]string, tags []string, addPlanIDs []string, relationships []models.Relationship) (*models.Task, error) {
+    tx, err := r.client.BeginTx(ctx)
+    if err != nil {
+        return nil, err
+    }
+    defer tx.Rollback()
+
+    // Build dynamic SET clauses
+    setClauses := []string{
+        fmt.Sprintf("t.updated_at = '%s'", time.Now().UTC().Format(time.RFC3339)),
+    }
+
+    if content != nil {
+        setClauses = append(setClauses, fmt.Sprintf("t.content = '%s'", EscapeCypherString(*content)))
+    }
+    if status != nil {
+        setClauses = append(setClauses, fmt.Sprintf("t.status = '%s'", EscapeCypherString(*status)))
+    }
+    if metadata != nil {
+        setClauses = append(setClauses, fmt.Sprintf("t.metadata = '%s'", EscapeCypherString(metadataToJSON(metadata))))
+    }
+    if tags != nil {
+        setClauses = append(setClauses, fmt.Sprintf("t.tags = %s", tagsToCypherList(tags)))
+    }
+
+    cypher := fmt.Sprintf(
+        `MATCH (t:Task {id: '%s'}) SET %s RETURN t`,
+        EscapeCypherString(id),
+        strings.Join(setClauses, ", "),
+    )
+
+    cursor, err := ExecCypher(tx, r.client.GraphName(), 1, cypher)
+    if err != nil {
+        return nil, fmt.Errorf("failed to update task: %w", err)
+    }
+
+    if !cursor.Next() {
+        return nil, fmt.Errorf("task not found: %s", id)
+    }
+
+    row, _ := cursor.GetRow()
+    task := VertexToTask(row[0].(*age.Vertex))
+
+    // Add to new plans (with position at end)
+    for _, planID := range addPlanIDs {
+        // Verify plan exists
+        planCursor, err := ExecCypher(tx, r.client.GraphName(), 1,
+            fmt.Sprintf("MATCH (p:Plan {id: '%s'}) RETURN p", EscapeCypherString(planID)))
+        if err != nil {
+            return nil, err
+        }
+        if !planCursor.Next() {
+            return nil, fmt.Errorf("plan not found: %s", planID)
+        }
+
+        // Check if already linked to this plan
+        linkCursor, err := ExecCypher(tx, r.client.GraphName(), 1,
+            fmt.Sprintf(
+                `MATCH (t:Task {id: '%s'})-[r:PART_OF]->(p:Plan {id: '%s'}) RETURN r`,
+                EscapeCypherString(id), EscapeCypherString(planID)))
+        if err != nil {
+            return nil, err
+        }
+        if linkCursor.Next() {
+            continue // Already linked
+        }
+
+        // Calculate position (append to end)
+        maxPos, err := r.getMaxPosition(ctx, tx, planID)
+        if err != nil {
+            return nil, err
+        }
+        position := appendPosition(maxPos)
+
+        _, err = ExecCypher(tx, r.client.GraphName(), 0,
+            fmt.Sprintf(
+                `MATCH (t:Task {id: '%s'}), (p:Plan {id: '%s'})
+                 CREATE (t)-[r:PART_OF {position: %f}]->(p)`,
+                EscapeCypherString(id),
+                EscapeCypherString(planID),
+                position,
+            ))
+        if err != nil {
+            return nil, fmt.Errorf("failed to link task to plan %s: %w", planID, err)
+        }
+    }
+
+    // Create new relationships (idempotent)
+    for _, rel := range relationships {
+        if err := r.createRelationshipFromTask(tx, id, rel.ToID, rel.Type); err != nil {
+            fmt.Fprintf(os.Stderr, "warning: failed to create relationship: %v\n", err)
+        }
+    }
+
+    if err := tx.Commit(); err != nil {
+        return nil, err
+    }
+    return &task, nil
 }
 ```
 
@@ -2054,35 +2829,40 @@ func main() {
 
 | # | Task | Depends On | Est. Effort |
 |---|------|------------|-------------|
-| 1 | Update go.mod dependencies | - | Small |
-| 2 | Rename neo4j package to graph | 1 | Small |
-| 3 | Update all import paths | 2 | Small |
-| 4 | Create new client.go (with initSchema + pg_trgm indexes) | 2 | Medium |
-| 4a | **AGE Cypher compatibility validation tests** | 4 | Medium |
-| 4b | **Document alternatives for any failing Cypher features** | 4a | Small |
-| 5 | Create helpers.go | 4 | Medium |
-| 6 | Migrate repository.go (Memory): Add, GetByID, Delete, Update (with node_type property) | 5, 4b | Medium |
-| 6a | Migrate repository.go: Search with pg_trgm + ID search | 6 | Medium |
-| 6b | Migrate repository.go: GetByIDWithRelated | 6 | Medium |
-| 6c | Migrate repository.go: GetRelated (depth traversal, full direction logic, node_type) | 6 | Large |
-| 6d | Migrate repository.go: createRelationship (check-then-create) | 6 | Small |
-| 7 | Update repository tests | 6c | Medium |
-| 8 | Migrate plan_repository.go (with node_type, default status, DependsOn/Blocks in GetWithTasks) | 5, 4b | Large |
-| 9 | Update plan repository tests | 8 | Medium |
-| 10 | Migrate task_repository.go: Add (with node_type, default status), GetByID, GetWithPlans, Delete | 5, 4b | Medium |
-| 10a | Migrate task_repository.go: Position utilities (appendPosition, CalculateInsertPositions, etc.) | 10 | Medium |
-| 10b | Migrate task_repository.go: List with position ordering | 10a | Medium |
-| 10c | Migrate task_repository.go: UpdatePositions (batch reorder) | 10a | Medium |
-| 10d | Migrate task_repository.go: createRelationshipFromTask (check-then-create) | 10 | Small |
-| 11 | Update task repository tests | 10c | Medium |
-| 12 | Update integration tests | 7, 9, 11 | Medium |
-| 13 | Update main.go | 4 | Small |
-| 14 | Update docker-compose.yml | - | Small |
-| 15 | Update Dockerfile | - | Small |
-| 16 | Update README.md | 14, 15 | Small |
-| 17 | Update docs/memory.md | 6 | Small |
-| 18 | Full integration testing | All | Medium |
-| 19 | Cleanup old Neo4j artifacts | 18 | Small |
+| 1 | **AGE Driver verification spike (Task 1.4)** | - | Small |
+| 2 | Update go.mod dependencies | 1 | Small |
+| 3 | Rename neo4j package to graph | 2 | Small |
+| 4 | Update all import paths | 3 | Small |
+| 5 | Create new client.go (with initSchema + pg_trgm indexes) | 3 | Medium |
+| 5a | **AGE Cypher compatibility validation tests (HARD GATE)** | 5 | Medium |
+| 5b | **Implement fallbacks for any failing Cypher features** | 5a | Medium |
+| 6 | Create helpers.go (with ValidateRelationType, tagsToCypherList, EscapeCypherString) | 5 | Medium |
+| 7 | Migrate repository.go (Memory): Add, GetByID, Delete, Update (with node_type property) | 6, 5b | Medium |
+| 7a | Migrate repository.go: Search (raw SQL + pg_trgm similarity + Cypher for related IDs) | 7 | Medium |
+| 7b | Migrate repository.go: GetByIDWithRelated (or split-query fallback) | 7, 5b | Medium |
+| 7c | Migrate repository.go: GetRelated (primary or iterative fallback) | 7, 5b | Large |
+| 7d | Migrate repository.go: createRelationship (check-then-create + validation) | 7 | Small |
+| 8 | Update repository tests | 7c | Medium |
+| 9 | Migrate plan_repository.go: Add, GetByID, GetWithTasks (with node_type, default status) | 6, 5b | Large |
+| 9a | Migrate plan_repository.go: Update (dynamic SET) | 9 | Medium |
+| 9b | Migrate plan_repository.go: List (tag filtering via IN on array properties) | 9 | Medium |
+| 9c | Migrate plan_repository.go: Delete (multi-step cascade in Go) | 9 | Medium |
+| 10 | Update plan repository tests | 9c | Medium |
+| 11 | Migrate task_repository.go: Add (with node_type, default status), GetByID, GetWithPlans, Delete | 6, 5b | Medium |
+| 11a | Migrate task_repository.go: Update (partial SET + add plans + relationships) | 11 | Medium |
+| 11b | Migrate task_repository.go: Position utilities (appendPosition, CalculateInsertPositions, etc.) | 11 | Medium |
+| 11c | Migrate task_repository.go: List with position ordering | 11b | Medium |
+| 11d | Migrate task_repository.go: UpdatePositions (batch reorder) | 11b | Medium |
+| 11e | Migrate task_repository.go: createRelationshipFromTask (check-then-create + validation) | 11 | Small |
+| 12 | Update task repository tests | 11d | Medium |
+| 13 | Update integration tests | 8, 10, 12 | Medium |
+| 14 | Update main.go | 5 | Small |
+| 15 | Update docker-compose.yml | - | Small |
+| 16 | Update Dockerfile | - | Small |
+| 17 | Update README.md | 15, 16 | Small |
+| 18 | Update docs/memory.md | 7 | Small |
+| 19 | Full integration testing | All | Medium |
+| 20 | Cleanup old Neo4j artifacts | 19 | Small |
 
 ---
 
@@ -2124,27 +2904,25 @@ MATCH (a)-[r]->(b) RETURN a, r, b LIMIT 100
 
 ## Notes and Considerations
 
-1. **AGE Driver Fallback**: If the official AGE Go driver proves problematic, fall back to using `lib/pq` directly with manual agtype parsing using the `database/sql` interface.
+1. **AGE Driver Fallback**: If the official AGE Go driver proves problematic (Task 1.4 fails), fall back to using `lib/pq` directly with a thin internal wrapper for `ExecCypher`-like ergonomics and manual agtype parsing.
 
-2. **Full-Text Search Upgrade Path**: If CONTAINS becomes a performance bottleneck, add `pg_trgm` extension:
-   ```sql
-   CREATE EXTENSION pg_trgm;
-   -- Create trigram index on a supporting table
-   ```
+2. **Transaction Handling**: AGE requires explicit transaction management. Every Cypher query must be wrapped in a transaction.
 
-3. **Transaction Handling**: AGE requires explicit transaction management. Every Cypher query must be wrapped in a transaction.
+3. **Parameter Passing & Security**: Use AGE driver parameterization where supported (determined by Task 1.4 spike). For values that must be interpolated (labels, relationship types), use `EscapeCypherString()` for property values and `ValidateRelationType()` for relationship type names. Never interpolate raw user input without validation.
 
-4. **Parameter Passing**: The AGE Go driver uses string formatting for parameters (not parameterized queries like Neo4j). Always use `EscapeCypherString()` to prevent injection.
+4. **Label Tables**: AGE creates PostgreSQL tables for each label (e.g., `associate."Memory"`). These are queried directly with SQL for search (using pg_trgm) and can be used as a fallback for any Cypher feature that doesn't work in AGE.
 
-5. **Label Tables**: AGE creates PostgreSQL tables for each label (e.g., `associate."Memory"`). These can be queried directly with SQL if needed.
+5. **Idempotent Relationship Creation**: AGE does not support `MERGE` for relationships. Use an existence check before `CREATE` to avoid duplicate relationships. All relationship creation functions must call `ValidateRelationType()` before interpolating the type name.
 
-6. **Idempotent Relationship Creation**: AGE does not support `MERGE` for relationships. Use an existence check before `CREATE` to avoid duplicate relationships. This is critical for maintaining data integrity.
-
-7. **Position Management**: Task ordering uses fractional positioning with these key functions:
+6. **Position Management**: Task ordering uses fractional positioning with these key functions:
    - `appendPosition`: Appends to end with timestamp-based uniqueness for concurrent inserts
    - `CalculateInsertPositions`: Calculates positions for inserting between existing tasks
    - `UpdatePositions`: Batch updates for reordering operations
    
    These must be ported accurately to preserve task ordering behavior.
 
-8. **Search API Shape**: The Search function must return `related_ids` to preserve API compatibility. Even though scoring is lost (returns 1.0), the related memories collection must be maintained.
+7. **Search API Shape**: The Search function uses raw SQL with pg_trgm `similarity()` for ranked results and a follow-up Cypher query to collect related Memory IDs. This preserves both scoring (unlike the previous ILIKE approach) and the API response shape.
+
+8. **Tags Storage**: Tags are stored as native Cypher array properties (e.g., `tags: ['foo', 'bar']`) using `tagsToCypherList()`. This ensures the Cypher `IN` operator works correctly for tag filtering. Do NOT store tags as JSON strings.
+
+9. **Cascade Delete Pattern**: Plan deletion uses a multi-step Go loop (find orphan tasks, delete each, delete plan) within a single transaction. This avoids AGE's lack of `FOREACH` and `NOT EXISTS {}` support while maintaining atomicity.

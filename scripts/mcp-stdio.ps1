@@ -1,12 +1,12 @@
 # MCP stdio wrapper for containerized associate (OPTIONAL)
 #
 # This script is a convenience wrapper for environments where you want
-# automatic Neo4j startup. For most use cases, you can configure your
+# automatic PostgreSQL/AGE startup. For most use cases, you can configure your
 # MCP client to use docker directly:
 #
 #   "command": "docker",
 #   "args": ["run", "-i", "--rm", "--network", "associate_default",
-#            "-e", "NEO4J_URI=bolt://neo4j:7687", "associate-associate"]
+#            "-e", "DB_HOST=postgres", "associate-associate"]
 #
 # Use this script as the "command" in MCP client configuration when you don't have Go installed.
 # It runs the associate MCP server via Docker, communicating over stdin/stdout.
@@ -18,18 +18,18 @@ $PROJECT_ROOT = Split-Path -Parent $SCRIPT_DIR
 
 Set-Location $PROJECT_ROOT
 
-# Check if Neo4j is running, start if not
-$neo4jRunning = docker ps --format "{{.Names}}" 2>$null | Select-String -Pattern "^associate-neo4j$" -Quiet
+# Check if PostgreSQL is running, start if not
+$postgresRunning = docker ps --format "{{.Names}}" 2>$null | Select-String -Pattern "^associate-postgres$" -Quiet
 
-if (-not $neo4jRunning) {
-    # Start Neo4j in the background
-    docker-compose up -d neo4j 2>&1 | Out-Host
+if (-not $postgresRunning) {
+    # Start PostgreSQL in the background
+    docker-compose up -d postgres 2>&1 | Out-Host
     
-    # Wait for Neo4j to be healthy (max 60 seconds)
+    # Wait for PostgreSQL to be healthy (max 60 seconds)
     $maxAttempts = 30
     for ($i = 1; $i -le $maxAttempts; $i++) {
         try {
-            docker exec associate-neo4j wget -q -O - http://localhost:7474 2>&1 | Out-Null
+            docker exec associate-postgres pg_isready -U associate -d associate 2>&1 | Out-Null
             break
         }
         catch {
@@ -38,7 +38,7 @@ if (-not $neo4jRunning) {
     }
 }
 
-# Run associate in stdio mode, connecting to the neo4j container network
+# Run associate in stdio mode, connecting to the postgres container network
 # --rm: Remove container after exit
 # -T: Don't allocate a pseudo-TTY (important for stdio mode)
 # --entrypoint: Override the default -http entrypoint to run in stdio mode

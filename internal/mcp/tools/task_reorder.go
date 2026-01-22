@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/fitz/associate/internal/neo4j"
+	"github.com/fitz/associate/internal/graph"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -131,7 +131,7 @@ func (h *Handler) HandleReorderTasks(ctx context.Context, req *mcp.CallToolReque
 	}
 
 	// Calculate new positions for the tasks
-	positions := neo4j.CalculateInsertPositions(afterPos, beforePos, len(input.TaskIDs))
+	positions := graph.CalculateInsertPositions(afterPos, beforePos, len(input.TaskIDs))
 
 	// Build the update map
 	newPositions := make(map[string]float64)

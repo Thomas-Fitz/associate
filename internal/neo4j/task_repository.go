@@ -3,6 +3,7 @@ package neo4j
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"time"
 
 	"github.com/fitz/associate/internal/models"
@@ -255,7 +256,7 @@ RETURN t
 		if posErr != nil {
 			return nil, fmt.Errorf("failed to get max position for plan %s: %w", planID, posErr)
 		}
-		position := maxPos + DefaultPositionIncrement
+		position := appendPosition(maxPos)
 
 		if err := r.createTaskToPlanRelationship(ctx, session, id, planID, position); err != nil {
 			fmt.Printf("warning: failed to create plan relationship to %s: %v\n", planID, err)
@@ -508,6 +509,18 @@ const (
 	DefaultPositionIncrement = 1000.0
 )
 
+// appendPosition returns a position value for appending after maxPos.
+// Uses nanosecond timestamp plus small random jitter to ensure uniqueness
+// in concurrent scenarios. The sub-position component (0.0 to ~1.0) provides
+// natural ordering by creation time for tasks created in parallel.
+func appendPosition(maxPos float64) float64 {
+	// Use nanoseconds for high resolution (0.000000000 to 0.999999999)
+	nanoComponent := float64(time.Now().UnixNano()%1e9) / 1e9
+	// Add small random jitter (0 to 0.0001) to handle same-nanosecond collisions
+	jitter := rand.Float64() * 0.0001
+	return maxPos + DefaultPositionIncrement + nanoComponent + jitter
+}
+
 // getMaxPosition returns the maximum position value for tasks in a plan.
 // Returns 0.0 if no tasks exist in the plan.
 func (r *TaskRepository) getMaxPosition(ctx context.Context, session neo4j.SessionWithContext, planID string) (float64, error) {
@@ -654,7 +667,7 @@ func (r *TaskRepository) calculateNewTaskPosition(ctx context.Context, session n
 		if err != nil {
 			return 0, fmt.Errorf("failed to get max position: %w", err)
 		}
-		return maxPos + DefaultPositionIncrement, nil
+		return appendPosition(maxPos), nil
 	}
 
 	// Calculate position for single task insertion

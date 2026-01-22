@@ -5,6 +5,7 @@ package neo4j
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -251,7 +252,7 @@ func TestTaskRepository_CRUD(t *testing.T) {
 
 		found := false
 		for _, tsk := range tasks {
-			if tsk.ID == testID {
+			if tsk.Task.ID == testID {
 				found = true
 				break
 			}
@@ -1317,4 +1318,85 @@ func TestGetPlanWithDependencies(t *testing.T) {
 	t.Logf("  Task1: depends_on=%v, blocks=%v", task1.DependsOn, task1.Blocks)
 	t.Logf("  Task2: depends_on=%v, blocks=%v", task2.DependsOn, task2.Blocks)
 	t.Logf("  Task3: depends_on=%v, blocks=%v", taskMap[task3ID].DependsOn, taskMap[task3ID].Blocks)
+}
+
+// TestTaskOrdering_ConcurrentCreation tests that tasks created concurrently get unique positions.
+// This tests the fix for the race condition where parallel task creation could result in duplicate positions.
+func TestTaskOrdering_ConcurrentCreation(t *testing.T) {
+	client, ctx, cancel := getTestClient(t)
+	defer cancel()
+	defer client.Close(ctx)
+
+	planRepo := NewPlanRepository(client)
+	taskRepo := NewTaskRepository(client)
+
+	timestamp := time.Now().Format("20060102-150405-000")
+	planID := "test-concurrent-" + timestamp
+
+	// Create 10 task IDs for concurrent creation
+	const numTasks = 10
+	taskIDs := make([]string, numTasks)
+	for i := 0; i < numTasks; i++ {
+		taskIDs[i] = fmt.Sprintf("concurrent-task-%d-%s", i, timestamp)
+	}
+
+	// Cleanup all test data
+	allIDs := append([]string{planID}, taskIDs...)
+	defer cleanupTestData(ctx, client, allIDs...)
+
+	// Create plan
+	_, err := planRepo.Add(ctx, models.Plan{ID: planID, Name: "Concurrent Test", Status: models.PlanStatusActive}, nil)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	// Create tasks concurrently using goroutines
+	errChan := make(chan error, numTasks)
+	for i := 0; i < numTasks; i++ {
+		go func(idx int) {
+			_, err := taskRepo.Add(ctx,
+				models.Task{ID: taskIDs[idx], Content: fmt.Sprintf("Concurrent Task %d", idx), Status: models.TaskStatusPending},
+				[]string{planID}, nil, nil, nil)
+			errChan <- err
+		}(i)
+	}
+
+	// Wait for all goroutines to complete
+	for i := 0; i < numTasks; i++ {
+		if err := <-errChan; err != nil {
+			t.Fatalf("Failed to create task concurrently: %v", err)
+		}
+	}
+
+	// Get plan with tasks
+	_, tasks, err := planRepo.GetWithTasks(ctx, planID)
+	if err != nil {
+		t.Fatalf("Failed to get plan with tasks: %v", err)
+	}
+
+	if len(tasks) != numTasks {
+		t.Fatalf("Expected %d tasks, got %d", numTasks, len(tasks))
+	}
+
+	// Verify all positions are unique
+	positionSet := make(map[float64]string)
+	for _, task := range tasks {
+		if existingID, exists := positionSet[task.Position]; exists {
+			t.Errorf("Duplicate position %.6f found for tasks %s and %s", task.Position, existingID, task.Task.ID)
+		}
+		positionSet[task.Position] = task.Task.ID
+	}
+
+	// Verify positions are in strictly ascending order (no duplicates)
+	for i := 1; i < len(tasks); i++ {
+		if tasks[i].Position <= tasks[i-1].Position {
+			t.Errorf("Positions not strictly ascending: task[%d].Position (%.6f) <= task[%d].Position (%.6f)",
+				i, tasks[i].Position, i-1, tasks[i-1].Position)
+		}
+	}
+
+	t.Logf("✓ %d tasks created concurrently with unique positions:", numTasks)
+	for i, task := range tasks {
+		t.Logf("  [%d] %s: position=%.6f", i, task.Task.ID, task.Position)
+	}
 }

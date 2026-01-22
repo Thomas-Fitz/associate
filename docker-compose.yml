@@ -16,16 +16,9 @@ services:
       timeout: 5s
       retries: 5
 
-  age-viewer:
-    image: apache/age-viewer:latest
-    container_name: associate-age-viewer
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "3000:3000"
-    environment:
-      - NODE_ENV=production
+  # NOTE: age-viewer removed - no official Docker image exists.
+  # Build from source if needed: https://github.com/apache/age-viewer
+  # Or use community images like: joaqim/age-viewer:latest
 
   associate:
     build: .

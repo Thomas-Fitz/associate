@@ -75,6 +75,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer, tools.UpdateTaskTool(), s.handler.HandleUpdateTask)
 	mcp.AddTool(s.mcpServer, tools.DeleteTaskTool(), s.handler.HandleDeleteTask)
 	mcp.AddTool(s.mcpServer, tools.ListTasksTool(), s.handler.HandleListTasks)
+	mcp.AddTool(s.mcpServer, tools.ReorderTasksTool(), s.handler.HandleReorderTasks)
 }
 
 // HTTPHandler returns an http.Handler for the MCP server

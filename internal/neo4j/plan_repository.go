@@ -111,41 +111,75 @@ func (r *PlanRepository) GetByID(ctx context.Context, id string) (*models.Plan, 
 	return &plan, nil
 }
 
-// GetWithTasks retrieves a plan by ID along with all its tasks
-func (r *PlanRepository) GetWithTasks(ctx context.Context, id string) (*models.Plan, []models.Task, error) {
+// GetWithTasks retrieves a plan by ID along with all its tasks ordered by position.
+// Returns TaskInPlan which includes position and dependency information.
+func (r *PlanRepository) GetWithTasks(ctx context.Context, id string) (*models.Plan, []models.TaskInPlan, error) {
 	session := r.client.Session(ctx)
 	defer session.Close(ctx)
 
-	cypher := `
-MATCH (p:Plan {id: $id})
-OPTIONAL MATCH (t:Task)-[:PART_OF]->(p)
-RETURN p, collect(t) as tasks
-`
-
-	result, err := session.Run(ctx, cypher, map[string]any{"id": id})
+	// First get the plan
+	planCypher := `MATCH (p:Plan {id: $id}) RETURN p`
+	planResult, err := session.Run(ctx, planCypher, map[string]any{"id": id})
 	if err != nil {
 		return nil, nil, fmt.Errorf("query failed: %w", err)
 	}
 
-	if !result.Next(ctx) {
+	if !planResult.Next(ctx) {
 		return nil, nil, nil // Not found
 	}
 
-	record := result.Record()
-	node, _ := record.Get("p")
-	tasksRaw, _ := record.Get("tasks")
+	planNode, _ := planResult.Record().Get("p")
+	plan := nodeToPlan(planNode.(neo4j.Node))
 
-	plan := nodeToPlan(node.(neo4j.Node))
+	// Now get tasks with position and dependencies
+	tasksCypher := `
+MATCH (p:Plan {id: $id})
+OPTIONAL MATCH (t:Task)-[r:PART_OF]->(p)
+OPTIONAL MATCH (t)-[:DEPENDS_ON]->(dep:Task)-[:PART_OF]->(p)
+OPTIONAL MATCH (t)-[:BLOCKS]->(blk:Task)-[:PART_OF]->(p)
+WITH t, r, collect(DISTINCT dep.id) as depends_on, collect(DISTINCT blk.id) as blocks
+WHERE t IS NOT NULL
+RETURN t, COALESCE(r.position, 0.0) as position, depends_on, blocks
+ORDER BY position ASC
+`
+	tasksResult, err := session.Run(ctx, tasksCypher, map[string]any{"id": id})
+	if err != nil {
+		return nil, nil, fmt.Errorf("tasks query failed: %w", err)
+	}
 
-	var tasks []models.Task
-	if taskNodes, ok := tasksRaw.([]any); ok {
-		for _, tn := range taskNodes {
-			if tn != nil {
-				if taskNode, ok := tn.(neo4j.Node); ok {
-					tasks = append(tasks, nodeToTask(taskNode))
+	var tasks []models.TaskInPlan
+	for tasksResult.Next(ctx) {
+		record := tasksResult.Record()
+		taskNode, _ := record.Get("t")
+		position, _ := record.Get("position")
+		dependsOnRaw, _ := record.Get("depends_on")
+		blocksRaw, _ := record.Get("blocks")
+
+		task := nodeToTask(taskNode.(neo4j.Node))
+		taskInPlan := models.TaskInPlan{
+			Task:     task,
+			Position: toFloat64(position),
+		}
+
+		// Convert depends_on array
+		if deps, ok := dependsOnRaw.([]any); ok {
+			for _, d := range deps {
+				if s, ok := d.(string); ok && s != "" {
+					taskInPlan.DependsOn = append(taskInPlan.DependsOn, s)
 				}
 			}
 		}
+
+		// Convert blocks array
+		if blks, ok := blocksRaw.([]any); ok {
+			for _, b := range blks {
+				if s, ok := b.(string); ok && s != "" {
+					taskInPlan.Blocks = append(taskInPlan.Blocks, s)
+				}
+			}
+		}
+
+		tasks = append(tasks, taskInPlan)
 	}
 
 	return &plan, tasks, nil

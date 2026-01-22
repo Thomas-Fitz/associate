@@ -14,9 +14,12 @@ type GetPlanInput struct {
 
 // TaskSummary contains summary info about a task in a plan.
 type TaskSummary struct {
-	ID      string `json:"id"`
-	Content string `json:"content"`
-	Status  string `json:"status"`
+	ID        string   `json:"id"`
+	Content   string   `json:"content"`
+	Status    string   `json:"status"`
+	Position  float64  `json:"position"`
+	DependsOn []string `json:"depends_on,omitempty"`
+	Blocks    []string `json:"blocks,omitempty"`
 }
 
 // GetPlanOutput defines the output for the get_plan tool.
@@ -58,13 +61,16 @@ func (h *Handler) HandleGetPlan(ctx context.Context, req *mcp.CallToolRequest, i
 		return nil, GetPlanOutput{}, fmt.Errorf("plan not found: %s", input.ID)
 	}
 
-	// Convert tasks to summaries
+	// Convert tasks to summaries (tasks are already ordered by position from repository)
 	var taskSummaries []TaskSummary
 	for _, t := range tasks {
 		taskSummaries = append(taskSummaries, TaskSummary{
-			ID:      t.ID,
-			Content: t.Content,
-			Status:  string(t.Status),
+			ID:        t.Task.ID,
+			Content:   t.Task.Content,
+			Status:    string(t.Task.Status),
+			Position:  t.Position,
+			DependsOn: t.DependsOn,
+			Blocks:    t.Blocks,
 		})
 	}
 

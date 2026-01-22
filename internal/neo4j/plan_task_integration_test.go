@@ -193,7 +193,7 @@ func TestTaskRepository_CRUD(t *testing.T) {
 			Metadata: map[string]string{"priority": "1"},
 		}
 
-		created, err := repo.Add(ctx, task, []string{planID}, nil)
+		created, err := repo.Add(ctx, task, []string{planID}, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("Failed to create task: %v", err)
 		}
@@ -310,7 +310,7 @@ func TestPlanTaskRelationship(t *testing.T) {
 		Content: "Task linked to plan",
 		Status:  models.TaskStatusPending,
 	}
-	_, err = taskRepo.Add(ctx, task, []string{planID}, nil)
+	_, err = taskRepo.Add(ctx, task, []string{planID}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to create task with plan link: %v", err)
 	}
@@ -328,8 +328,8 @@ func TestPlanTaskRelationship(t *testing.T) {
 
 		if len(tasks) != 1 {
 			t.Errorf("Expected 1 task, got %d", len(tasks))
-		} else if tasks[0].ID != taskID {
-			t.Errorf("Expected task ID %s, got %s", taskID, tasks[0].ID)
+		} else if tasks[0].Task.ID != taskID {
+			t.Errorf("Expected task ID %s, got %s", taskID, tasks[0].Task.ID)
 		}
 		t.Logf("✓ GetWithTasks returned %d tasks", len(tasks))
 	})
@@ -393,13 +393,13 @@ func TestCascadeDelete(t *testing.T) {
 	t.Log("✓ Created two plans for cascade delete test")
 
 	// Create task1 linked only to plan1 (orphan when plan1 deleted)
-	_, err = taskRepo.Add(ctx, models.Task{ID: task1ID, Content: "Orphan task", Status: models.TaskStatusPending}, []string{plan1ID}, nil)
+	_, err = taskRepo.Add(ctx, models.Task{ID: task1ID, Content: "Orphan task", Status: models.TaskStatusPending}, []string{plan1ID}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to create task1: %v", err)
 	}
 
 	// Create task2 linked to both plans (should survive plan1 deletion)
-	_, err = taskRepo.Add(ctx, models.Task{ID: task2ID, Content: "Shared task", Status: models.TaskStatusPending}, []string{plan1ID, plan2ID}, nil)
+	_, err = taskRepo.Add(ctx, models.Task{ID: task2ID, Content: "Shared task", Status: models.TaskStatusPending}, []string{plan1ID, plan2ID}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to create task2: %v", err)
 	}
@@ -502,7 +502,7 @@ func TestTaskRequiresPlan(t *testing.T) {
 			Content: "Task without plan",
 			Status:  models.TaskStatusPending,
 		}
-		_, err := taskRepo.Add(ctx, task, []string{}, nil)
+		_, err := taskRepo.Add(ctx, task, []string{}, nil, nil, nil)
 		if err == nil {
 			t.Error("Expected error when creating task without plans")
 			cleanupTestData(ctx, client, taskID+"-noplan")
@@ -518,7 +518,7 @@ func TestTaskRequiresPlan(t *testing.T) {
 			Content: "Task with nil plans",
 			Status:  models.TaskStatusPending,
 		}
-		_, err := taskRepo.Add(ctx, task, nil, nil)
+		_, err := taskRepo.Add(ctx, task, nil, nil, nil, nil)
 		if err == nil {
 			t.Error("Expected error when creating task with nil plans")
 			cleanupTestData(ctx, client, taskID+"-nilplan")
@@ -534,7 +534,7 @@ func TestTaskRequiresPlan(t *testing.T) {
 			Content: "Task with non-existent plan",
 			Status:  models.TaskStatusPending,
 		}
-		_, err := taskRepo.Add(ctx, task, []string{"non-existent-plan-id"}, nil)
+		_, err := taskRepo.Add(ctx, task, []string{"non-existent-plan-id"}, nil, nil, nil)
 		if err == nil {
 			t.Error("Expected error when creating task with non-existent plan")
 			cleanupTestData(ctx, client, taskID+"-badplan")
@@ -556,7 +556,7 @@ func TestTaskRequiresPlan(t *testing.T) {
 			Content: "Task with valid plan",
 			Status:  models.TaskStatusPending,
 		}
-		created, err := taskRepo.Add(ctx, task, []string{planID}, nil)
+		created, err := taskRepo.Add(ctx, task, []string{planID}, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("Expected success when creating task with valid plan, got: %v", err)
 		}
@@ -627,7 +627,7 @@ func TestCrossTypeRelationships(t *testing.T) {
 	taskRels := []models.Relationship{
 		{ToID: memID, Type: models.RelImplements},
 	}
-	_, err = taskRepo.Add(ctx, task, []string{planID}, taskRels)
+	_, err = taskRepo.Add(ctx, task, []string{planID}, taskRels, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to create task with memory relationship: %v", err)
 	}
@@ -643,13 +643,13 @@ func TestCrossTypeRelationships(t *testing.T) {
 		foundPlan := false
 		foundTask := false
 		for _, r := range related {
-			if r.ID == planID {
+			if r.Memory.ID == planID {
 				foundPlan = true
 				if r.RelationType != string(models.RelReferences) {
 					t.Errorf("Expected REFERENCES relationship, got %s", r.RelationType)
 				}
 			}
-			if r.ID == taskID {
+			if r.Memory.ID == taskID {
 				foundTask = true
 				if r.RelationType != string(models.RelImplements) {
 					t.Errorf("Expected IMPLEMENTS relationship, got %s", r.RelationType)
@@ -712,7 +712,7 @@ func TestEndToEndWorkflow(t *testing.T) {
 		if prevTaskID != "" {
 			rels = append(rels, models.Relationship{ToID: prevTaskID, Type: models.RelFollows})
 		}
-		_, err := taskRepo.Add(ctx, task, []string{planID}, rels)
+		_, err := taskRepo.Add(ctx, task, []string{planID}, rels, nil, nil)
 		if err != nil {
 			t.Fatalf("Failed to create task %s: %v", task.ID, err)
 		}
@@ -756,7 +756,7 @@ func TestEndToEndWorkflow(t *testing.T) {
 
 	completed := 0
 	for _, tsk := range planTasks {
-		if tsk.Status == models.TaskStatusCompleted {
+		if tsk.Task.Status == models.TaskStatusCompleted {
 			completed++
 		}
 	}
@@ -784,7 +784,7 @@ func TestEndToEndWorkflow(t *testing.T) {
 	}
 	allCompleted := true
 	for _, tsk := range finalTasks {
-		if tsk.Status != models.TaskStatusCompleted {
+		if tsk.Task.Status != models.TaskStatusCompleted {
 			allCompleted = false
 			break
 		}
@@ -793,4 +793,528 @@ func TestEndToEndWorkflow(t *testing.T) {
 		t.Error("Not all tasks are completed")
 	}
 	t.Log("✓ End-to-end workflow completed successfully")
+}
+
+// TestTaskOrdering_AppendToEnd tests that tasks are appended to the end by default
+func TestTaskOrdering_AppendToEnd(t *testing.T) {
+	client, ctx, cancel := getTestClient(t)
+	defer cancel()
+	defer client.Close(ctx)
+
+	planRepo := NewPlanRepository(client)
+	taskRepo := NewTaskRepository(client)
+
+	timestamp := time.Now().Format("20060102-150405-000")
+	planID := "test-ordering-append-" + timestamp
+	task1ID := "task1-" + timestamp
+	task2ID := "task2-" + timestamp
+	task3ID := "task3-" + timestamp
+	defer cleanupTestData(ctx, client, planID, task1ID, task2ID, task3ID)
+
+	// Create plan
+	_, err := planRepo.Add(ctx, models.Plan{ID: planID, Name: "Ordering Test", Status: models.PlanStatusActive}, nil)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	// Create tasks in order - they should be appended to end with increasing positions
+	for _, taskID := range []string{task1ID, task2ID, task3ID} {
+		_, err := taskRepo.Add(ctx, models.Task{ID: taskID, Content: "Task " + taskID, Status: models.TaskStatusPending}, []string{planID}, nil, nil, nil)
+		if err != nil {
+			t.Fatalf("Failed to create task %s: %v", taskID, err)
+		}
+	}
+
+	// Get plan with tasks - should be ordered by position
+	_, tasks, err := planRepo.GetWithTasks(ctx, planID)
+	if err != nil {
+		t.Fatalf("Failed to get plan with tasks: %v", err)
+	}
+
+	if len(tasks) != 3 {
+		t.Fatalf("Expected 3 tasks, got %d", len(tasks))
+	}
+
+	// Verify positions are in ascending order
+	if tasks[0].Task.ID != task1ID || tasks[1].Task.ID != task2ID || tasks[2].Task.ID != task3ID {
+		t.Errorf("Tasks not in expected order: got %s, %s, %s", tasks[0].Task.ID, tasks[1].Task.ID, tasks[2].Task.ID)
+	}
+
+	// Verify positions are increasing
+	if tasks[0].Position >= tasks[1].Position || tasks[1].Position >= tasks[2].Position {
+		t.Errorf("Positions not increasing: %f, %f, %f", tasks[0].Position, tasks[1].Position, tasks[2].Position)
+	}
+
+	t.Logf("✓ Tasks ordered correctly: %s (%.0f) -> %s (%.0f) -> %s (%.0f)",
+		tasks[0].Task.ID, tasks[0].Position,
+		tasks[1].Task.ID, tasks[1].Position,
+		tasks[2].Task.ID, tasks[2].Position)
+}
+
+// TestTaskOrdering_InsertAfter tests inserting a task after another task
+func TestTaskOrdering_InsertAfter(t *testing.T) {
+	client, ctx, cancel := getTestClient(t)
+	defer cancel()
+	defer client.Close(ctx)
+
+	planRepo := NewPlanRepository(client)
+	taskRepo := NewTaskRepository(client)
+
+	timestamp := time.Now().Format("20060102-150405-000")
+	planID := "test-ordering-after-" + timestamp
+	task1ID := "task1-" + timestamp
+	task2ID := "task2-" + timestamp
+	task3ID := "task3-" + timestamp
+	defer cleanupTestData(ctx, client, planID, task1ID, task2ID, task3ID)
+
+	// Create plan
+	_, err := planRepo.Add(ctx, models.Plan{ID: planID, Name: "Insert After Test", Status: models.PlanStatusActive}, nil)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	// Create task1 and task3 first
+	_, err = taskRepo.Add(ctx, models.Task{ID: task1ID, Content: "Task 1", Status: models.TaskStatusPending}, []string{planID}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create task1: %v", err)
+	}
+	_, err = taskRepo.Add(ctx, models.Task{ID: task3ID, Content: "Task 3", Status: models.TaskStatusPending}, []string{planID}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create task3: %v", err)
+	}
+
+	// Insert task2 after task1 (should go between task1 and task3)
+	afterID := task1ID
+	_, err = taskRepo.Add(ctx, models.Task{ID: task2ID, Content: "Task 2", Status: models.TaskStatusPending}, []string{planID}, nil, &afterID, nil)
+	if err != nil {
+		t.Fatalf("Failed to create task2 after task1: %v", err)
+	}
+
+	// Verify order
+	_, tasks, err := planRepo.GetWithTasks(ctx, planID)
+	if err != nil {
+		t.Fatalf("Failed to get plan with tasks: %v", err)
+	}
+
+	if len(tasks) != 3 {
+		t.Fatalf("Expected 3 tasks, got %d", len(tasks))
+	}
+
+	// Should be: task1 -> task2 -> task3
+	if tasks[0].Task.ID != task1ID || tasks[1].Task.ID != task2ID || tasks[2].Task.ID != task3ID {
+		t.Errorf("Tasks not in expected order: got %s, %s, %s (expected %s, %s, %s)",
+			tasks[0].Task.ID, tasks[1].Task.ID, tasks[2].Task.ID,
+			task1ID, task2ID, task3ID)
+	}
+
+	t.Logf("✓ Insert after works: %s (%.0f) -> %s (%.0f) -> %s (%.0f)",
+		tasks[0].Task.ID, tasks[0].Position,
+		tasks[1].Task.ID, tasks[1].Position,
+		tasks[2].Task.ID, tasks[2].Position)
+}
+
+// TestTaskOrdering_InsertBefore tests inserting a task before another task
+func TestTaskOrdering_InsertBefore(t *testing.T) {
+	client, ctx, cancel := getTestClient(t)
+	defer cancel()
+	defer client.Close(ctx)
+
+	planRepo := NewPlanRepository(client)
+	taskRepo := NewTaskRepository(client)
+
+	timestamp := time.Now().Format("20060102-150405-000")
+	planID := "test-ordering-before-" + timestamp
+	task1ID := "task1-" + timestamp
+	task2ID := "task2-" + timestamp
+	task3ID := "task3-" + timestamp
+	defer cleanupTestData(ctx, client, planID, task1ID, task2ID, task3ID)
+
+	// Create plan
+	_, err := planRepo.Add(ctx, models.Plan{ID: planID, Name: "Insert Before Test", Status: models.PlanStatusActive}, nil)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	// Create task1 and task3 first
+	_, err = taskRepo.Add(ctx, models.Task{ID: task1ID, Content: "Task 1", Status: models.TaskStatusPending}, []string{planID}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create task1: %v", err)
+	}
+	_, err = taskRepo.Add(ctx, models.Task{ID: task3ID, Content: "Task 3", Status: models.TaskStatusPending}, []string{planID}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create task3: %v", err)
+	}
+
+	// Insert task2 before task3 (should go between task1 and task3)
+	beforeID := task3ID
+	_, err = taskRepo.Add(ctx, models.Task{ID: task2ID, Content: "Task 2", Status: models.TaskStatusPending}, []string{planID}, nil, nil, &beforeID)
+	if err != nil {
+		t.Fatalf("Failed to create task2 before task3: %v", err)
+	}
+
+	// Verify order
+	_, tasks, err := planRepo.GetWithTasks(ctx, planID)
+	if err != nil {
+		t.Fatalf("Failed to get plan with tasks: %v", err)
+	}
+
+	if len(tasks) != 3 {
+		t.Fatalf("Expected 3 tasks, got %d", len(tasks))
+	}
+
+	// Should be: task1 -> task2 -> task3
+	if tasks[0].Task.ID != task1ID || tasks[1].Task.ID != task2ID || tasks[2].Task.ID != task3ID {
+		t.Errorf("Tasks not in expected order: got %s, %s, %s (expected %s, %s, %s)",
+			tasks[0].Task.ID, tasks[1].Task.ID, tasks[2].Task.ID,
+			task1ID, task2ID, task3ID)
+	}
+
+	t.Logf("✓ Insert before works: %s (%.0f) -> %s (%.0f) -> %s (%.0f)",
+		tasks[0].Task.ID, tasks[0].Position,
+		tasks[1].Task.ID, tasks[1].Position,
+		tasks[2].Task.ID, tasks[2].Position)
+}
+
+// TestTaskOrdering_InsertAtStart tests inserting a task at the start of a plan
+func TestTaskOrdering_InsertAtStart(t *testing.T) {
+	client, ctx, cancel := getTestClient(t)
+	defer cancel()
+	defer client.Close(ctx)
+
+	planRepo := NewPlanRepository(client)
+	taskRepo := NewTaskRepository(client)
+
+	timestamp := time.Now().Format("20060102-150405-000")
+	planID := "test-ordering-start-" + timestamp
+	task1ID := "task1-" + timestamp
+	task2ID := "task2-" + timestamp
+	defer cleanupTestData(ctx, client, planID, task1ID, task2ID)
+
+	// Create plan
+	_, err := planRepo.Add(ctx, models.Plan{ID: planID, Name: "Insert At Start Test", Status: models.PlanStatusActive}, nil)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	// Create task2 first
+	_, err = taskRepo.Add(ctx, models.Task{ID: task2ID, Content: "Task 2", Status: models.TaskStatusPending}, []string{planID}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create task2: %v", err)
+	}
+
+	// Insert task1 before task2 (at start)
+	beforeID := task2ID
+	_, err = taskRepo.Add(ctx, models.Task{ID: task1ID, Content: "Task 1", Status: models.TaskStatusPending}, []string{planID}, nil, nil, &beforeID)
+	if err != nil {
+		t.Fatalf("Failed to create task1 before task2: %v", err)
+	}
+
+	// Verify order
+	_, tasks, err := planRepo.GetWithTasks(ctx, planID)
+	if err != nil {
+		t.Fatalf("Failed to get plan with tasks: %v", err)
+	}
+
+	if len(tasks) != 2 {
+		t.Fatalf("Expected 2 tasks, got %d", len(tasks))
+	}
+
+	// Should be: task1 -> task2
+	if tasks[0].Task.ID != task1ID || tasks[1].Task.ID != task2ID {
+		t.Errorf("Tasks not in expected order: got %s, %s (expected %s, %s)",
+			tasks[0].Task.ID, tasks[1].Task.ID,
+			task1ID, task2ID)
+	}
+
+	// task1 should have a smaller position than task2
+	if tasks[0].Position >= tasks[1].Position {
+		t.Errorf("Insert at start failed: task1 position (%.0f) should be < task2 position (%.0f)",
+			tasks[0].Position, tasks[1].Position)
+	}
+
+	t.Logf("✓ Insert at start works: %s (%.0f) -> %s (%.0f)",
+		tasks[0].Task.ID, tasks[0].Position,
+		tasks[1].Task.ID, tasks[1].Position)
+}
+
+// TestReorderTasks_SingleTask tests reordering a single task
+func TestReorderTasks_SingleTask(t *testing.T) {
+	client, ctx, cancel := getTestClient(t)
+	defer cancel()
+	defer client.Close(ctx)
+
+	planRepo := NewPlanRepository(client)
+	taskRepo := NewTaskRepository(client)
+
+	timestamp := time.Now().Format("20060102-150405-000")
+	planID := "test-reorder-single-" + timestamp
+	task1ID := "task1-" + timestamp
+	task2ID := "task2-" + timestamp
+	task3ID := "task3-" + timestamp
+	defer cleanupTestData(ctx, client, planID, task1ID, task2ID, task3ID)
+
+	// Create plan
+	_, err := planRepo.Add(ctx, models.Plan{ID: planID, Name: "Reorder Single Test", Status: models.PlanStatusActive}, nil)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	// Create three tasks
+	for _, taskID := range []string{task1ID, task2ID, task3ID} {
+		_, err := taskRepo.Add(ctx, models.Task{ID: taskID, Content: "Task " + taskID, Status: models.TaskStatusPending}, []string{planID}, nil, nil, nil)
+		if err != nil {
+			t.Fatalf("Failed to create task %s: %v", taskID, err)
+		}
+	}
+
+	// Move task3 to position after task1 (before task2)
+	// New order should be: task1 -> task3 -> task2
+	err = taskRepo.UpdatePositions(ctx, planID, map[string]float64{
+		task3ID: 1500, // Between task1 (1000) and task2 (2000)
+	})
+	if err != nil {
+		t.Fatalf("Failed to reorder task: %v", err)
+	}
+
+	// Verify new order
+	_, tasks, err := planRepo.GetWithTasks(ctx, planID)
+	if err != nil {
+		t.Fatalf("Failed to get plan with tasks: %v", err)
+	}
+
+	// Should be: task1 -> task3 -> task2
+	if tasks[0].Task.ID != task1ID || tasks[1].Task.ID != task3ID || tasks[2].Task.ID != task2ID {
+		t.Errorf("Tasks not in expected order after reorder: got %s, %s, %s (expected %s, %s, %s)",
+			tasks[0].Task.ID, tasks[1].Task.ID, tasks[2].Task.ID,
+			task1ID, task3ID, task2ID)
+	}
+
+	t.Logf("✓ Single task reorder works: %s (%.0f) -> %s (%.0f) -> %s (%.0f)",
+		tasks[0].Task.ID, tasks[0].Position,
+		tasks[1].Task.ID, tasks[1].Position,
+		tasks[2].Task.ID, tasks[2].Position)
+}
+
+// TestReorderTasks_GroupMove tests reordering multiple tasks together
+func TestReorderTasks_GroupMove(t *testing.T) {
+	client, ctx, cancel := getTestClient(t)
+	defer cancel()
+	defer client.Close(ctx)
+
+	planRepo := NewPlanRepository(client)
+	taskRepo := NewTaskRepository(client)
+
+	timestamp := time.Now().Format("20060102-150405-000")
+	planID := "test-reorder-group-" + timestamp
+	task1ID := "task1-" + timestamp
+	task2ID := "task2-" + timestamp
+	task3ID := "task3-" + timestamp
+	task4ID := "task4-" + timestamp
+	defer cleanupTestData(ctx, client, planID, task1ID, task2ID, task3ID, task4ID)
+
+	// Create plan
+	_, err := planRepo.Add(ctx, models.Plan{ID: planID, Name: "Reorder Group Test", Status: models.PlanStatusActive}, nil)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	// Create four tasks: task1, task2, task3, task4
+	for _, taskID := range []string{task1ID, task2ID, task3ID, task4ID} {
+		_, err := taskRepo.Add(ctx, models.Task{ID: taskID, Content: "Task " + taskID, Status: models.TaskStatusPending}, []string{planID}, nil, nil, nil)
+		if err != nil {
+			t.Fatalf("Failed to create task %s: %v", taskID, err)
+		}
+	}
+
+	// Move task3 and task4 to the start (before task1)
+	// New order should be: task3 -> task4 -> task1 -> task2
+	positions := CalculateInsertPositions(0, 1000, 2) // Insert before position 1000
+	err = taskRepo.UpdatePositions(ctx, planID, map[string]float64{
+		task3ID: positions[0],
+		task4ID: positions[1],
+	})
+	if err != nil {
+		t.Fatalf("Failed to reorder tasks: %v", err)
+	}
+
+	// Verify new order
+	_, tasks, err := planRepo.GetWithTasks(ctx, planID)
+	if err != nil {
+		t.Fatalf("Failed to get plan with tasks: %v", err)
+	}
+
+	// Should be: task3 -> task4 -> task1 -> task2
+	expectedOrder := []string{task3ID, task4ID, task1ID, task2ID}
+	for i, expected := range expectedOrder {
+		if tasks[i].Task.ID != expected {
+			t.Errorf("Position %d: expected %s, got %s", i, expected, tasks[i].Task.ID)
+		}
+	}
+
+	t.Logf("✓ Group move works: %s (%.0f) -> %s (%.0f) -> %s (%.0f) -> %s (%.0f)",
+		tasks[0].Task.ID, tasks[0].Position,
+		tasks[1].Task.ID, tasks[1].Position,
+		tasks[2].Task.ID, tasks[2].Position,
+		tasks[3].Task.ID, tasks[3].Position)
+}
+
+// TestTaskOrdering_MultiPlan tests that the same task can have different positions in different plans
+func TestTaskOrdering_MultiPlan(t *testing.T) {
+	client, ctx, cancel := getTestClient(t)
+	defer cancel()
+	defer client.Close(ctx)
+
+	planRepo := NewPlanRepository(client)
+	taskRepo := NewTaskRepository(client)
+
+	timestamp := time.Now().Format("20060102-150405-000")
+	plan1ID := "test-multiplan1-" + timestamp
+	plan2ID := "test-multiplan2-" + timestamp
+	task1ID := "task1-" + timestamp
+	task2ID := "task2-" + timestamp
+	defer cleanupTestData(ctx, client, plan1ID, plan2ID, task1ID, task2ID)
+
+	// Create two plans
+	_, err := planRepo.Add(ctx, models.Plan{ID: plan1ID, Name: "Plan 1", Status: models.PlanStatusActive}, nil)
+	if err != nil {
+		t.Fatalf("Failed to create plan1: %v", err)
+	}
+	_, err = planRepo.Add(ctx, models.Plan{ID: plan2ID, Name: "Plan 2", Status: models.PlanStatusActive}, nil)
+	if err != nil {
+		t.Fatalf("Failed to create plan2: %v", err)
+	}
+
+	// Create task1 in plan1 first, then plan2
+	_, err = taskRepo.Add(ctx, models.Task{ID: task1ID, Content: "Task 1", Status: models.TaskStatusPending}, []string{plan1ID}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create task1: %v", err)
+	}
+	// Add task1 to plan2 as well
+	_, err = taskRepo.Update(ctx, task1ID, nil, nil, nil, nil, []string{plan2ID}, nil)
+	if err != nil {
+		t.Fatalf("Failed to add task1 to plan2: %v", err)
+	}
+
+	// Create task2 in plan2 first, then plan1
+	_, err = taskRepo.Add(ctx, models.Task{ID: task2ID, Content: "Task 2", Status: models.TaskStatusPending}, []string{plan2ID}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create task2: %v", err)
+	}
+	// Add task2 to plan1 as well
+	_, err = taskRepo.Update(ctx, task2ID, nil, nil, nil, nil, []string{plan1ID}, nil)
+	if err != nil {
+		t.Fatalf("Failed to add task2 to plan1: %v", err)
+	}
+
+	// Get tasks from plan1 - order should be task1, task2 (order added)
+	_, tasks1, err := planRepo.GetWithTasks(ctx, plan1ID)
+	if err != nil {
+		t.Fatalf("Failed to get plan1 with tasks: %v", err)
+	}
+
+	// Get tasks from plan2 - order should be task1, task2 (task1 added first, task2 second)
+	_, tasks2, err := planRepo.GetWithTasks(ctx, plan2ID)
+	if err != nil {
+		t.Fatalf("Failed to get plan2 with tasks: %v", err)
+	}
+
+	t.Logf("✓ Plan1 order: %s (%.0f), %s (%.0f)",
+		tasks1[0].Task.ID, tasks1[0].Position,
+		tasks1[1].Task.ID, tasks1[1].Position)
+	t.Logf("✓ Plan2 order: %s (%.0f), %s (%.0f)",
+		tasks2[0].Task.ID, tasks2[0].Position,
+		tasks2[1].Task.ID, tasks2[1].Position)
+
+	// Verify both plans have 2 tasks
+	if len(tasks1) != 2 || len(tasks2) != 2 {
+		t.Errorf("Expected 2 tasks in each plan, got %d and %d", len(tasks1), len(tasks2))
+	}
+}
+
+// TestGetPlanWithDependencies tests that depends_on and blocks arrays are populated correctly
+func TestGetPlanWithDependencies(t *testing.T) {
+	client, ctx, cancel := getTestClient(t)
+	defer cancel()
+	defer client.Close(ctx)
+
+	planRepo := NewPlanRepository(client)
+	taskRepo := NewTaskRepository(client)
+
+	timestamp := time.Now().Format("20060102-150405-000")
+	planID := "test-dependencies-" + timestamp
+	task1ID := "task1-" + timestamp
+	task2ID := "task2-" + timestamp
+	task3ID := "task3-" + timestamp
+	defer cleanupTestData(ctx, client, planID, task1ID, task2ID, task3ID)
+
+	// Create plan
+	_, err := planRepo.Add(ctx, models.Plan{ID: planID, Name: "Dependencies Test", Status: models.PlanStatusActive}, nil)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	// Create task1 (no dependencies)
+	_, err = taskRepo.Add(ctx, models.Task{ID: task1ID, Content: "Task 1", Status: models.TaskStatusPending}, []string{planID}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create task1: %v", err)
+	}
+
+	// Create task2 that depends on task1
+	_, err = taskRepo.Add(ctx, models.Task{ID: task2ID, Content: "Task 2", Status: models.TaskStatusPending}, []string{planID},
+		[]models.Relationship{{ToID: task1ID, Type: models.RelDependsOn}}, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create task2: %v", err)
+	}
+
+	// Create task3 that task2 blocks (task2 blocks task3)
+	_, err = taskRepo.Add(ctx, models.Task{ID: task3ID, Content: "Task 3", Status: models.TaskStatusPending}, []string{planID}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create task3: %v", err)
+	}
+	// Add blocks relationship from task2 to task3
+	_, err = taskRepo.Update(ctx, task2ID, nil, nil, nil, nil, nil, []models.Relationship{{ToID: task3ID, Type: models.RelBlocks}})
+	if err != nil {
+		t.Fatalf("Failed to add blocks relationship: %v", err)
+	}
+
+	// Get plan with tasks and verify dependencies
+	_, tasks, err := planRepo.GetWithTasks(ctx, planID)
+	if err != nil {
+		t.Fatalf("Failed to get plan with tasks: %v", err)
+	}
+
+	if len(tasks) != 3 {
+		t.Fatalf("Expected 3 tasks, got %d", len(tasks))
+	}
+
+	// Build a map for easier checking
+	taskMap := make(map[string]models.TaskInPlan)
+	for _, task := range tasks {
+		taskMap[task.Task.ID] = task
+	}
+
+	// Verify task2 depends_on task1
+	task2 := taskMap[task2ID]
+	if len(task2.DependsOn) != 1 || task2.DependsOn[0] != task1ID {
+		t.Errorf("Task2 should depend on task1, got depends_on: %v", task2.DependsOn)
+	}
+
+	// Verify task2 blocks task3
+	if len(task2.Blocks) != 1 || task2.Blocks[0] != task3ID {
+		t.Errorf("Task2 should block task3, got blocks: %v", task2.Blocks)
+	}
+
+	// Verify task1 has no dependencies
+	task1 := taskMap[task1ID]
+	if len(task1.DependsOn) != 0 {
+		t.Errorf("Task1 should have no dependencies, got: %v", task1.DependsOn)
+	}
+	if len(task1.Blocks) != 0 {
+		t.Errorf("Task1 should block nothing, got: %v", task1.Blocks)
+	}
+
+	t.Log("✓ Dependencies populated correctly")
+	t.Logf("  Task1: depends_on=%v, blocks=%v", task1.DependsOn, task1.Blocks)
+	t.Logf("  Task2: depends_on=%v, blocks=%v", task2.DependsOn, task2.Blocks)
+	t.Logf("  Task3: depends_on=%v, blocks=%v", taskMap[task3ID].DependsOn, taskMap[task3ID].Blocks)
 }

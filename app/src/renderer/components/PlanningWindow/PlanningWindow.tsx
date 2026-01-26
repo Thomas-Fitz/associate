@@ -165,8 +165,14 @@ export function PlanningWindow() {
   const handleCanvasContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     
-    // Get canvas position
+    // Convert screen coordinates to canvas/flow coordinates
     if (reactFlowRef.current) {
+      const canvasPosition = reactFlowRef.current.screenToFlowPosition({
+        x: e.clientX,
+        y: e.clientY
+      })
+      showContextMenu(e.clientX, e.clientY, 'canvas', undefined, canvasPosition.x, canvasPosition.y)
+    } else {
       showContextMenu(e.clientX, e.clientY, 'canvas', undefined)
     }
   }, [showContextMenu])
@@ -212,6 +218,11 @@ export function PlanningWindow() {
         deleteKeyCode={null} // We handle delete via context menu
         selectNodesOnDrag={false}
         nodeDragThreshold={5}
+        elevateEdgesOnSelect
+        defaultEdgeOptions={{
+          style: { strokeWidth: 2 },
+          animated: false
+        }}
       >
         <Controls />
         <MiniMap

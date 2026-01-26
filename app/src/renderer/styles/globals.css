@@ -37,12 +37,20 @@ body {
 }
 
 .react-flow__edge-path {
-  @apply stroke-surface-400;
   stroke-width: 2;
 }
 
 .react-flow__edge.selected .react-flow__edge-path {
   @apply stroke-primary-500;
+}
+
+/* Ensure edges are visible above nodes */
+.react-flow__edges {
+  z-index: 1000 !important;
+}
+
+.react-flow__edge {
+  pointer-events: visibleStroke;
 }
 
 /* Selection rectangle */

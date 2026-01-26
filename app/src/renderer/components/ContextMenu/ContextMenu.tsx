@@ -13,7 +13,10 @@ export function ContextMenu({ x, y, onClose, children }: ContextMenuProps) {
   // Close on click outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
+      // Close on any click outside the menu
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        e.preventDefault()
+        e.stopPropagation()
         onClose()
       }
     }
@@ -24,14 +27,18 @@ export function ContextMenu({ x, y, onClose, children }: ContextMenuProps) {
       }
     }
     
-    // Delay adding listeners to avoid immediate close
-    setTimeout(() => {
-      document.addEventListener('mousedown', handleClickOutside)
+    // Use capture phase to catch clicks before other handlers
+    // Small delay to avoid closing immediately from the right-click that opened it
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('click', handleClickOutside, true)
+      document.addEventListener('mousedown', handleClickOutside, true)
       document.addEventListener('keydown', handleKeyDown)
-    }, 0)
+    }, 100)
     
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
+      clearTimeout(timeoutId)
+      document.removeEventListener('click', handleClickOutside, true)
+      document.removeEventListener('mousedown', handleClickOutside, true)
       document.removeEventListener('keydown', handleKeyDown)
     }
   }, [onClose])

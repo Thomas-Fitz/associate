@@ -20,6 +20,21 @@ import type {
   PlanWithTasks
 } from '../renderer/types'
 
+// Helper to parse metadata safely
+function parseMetadata(metadata: unknown): Record<string, unknown> {
+  if (!metadata) return {}
+  if (typeof metadata === 'object') return metadata as Record<string, unknown>
+  if (typeof metadata === 'string') {
+    if (metadata === '' || metadata === '{}') return {}
+    try {
+      return JSON.parse(metadata) as Record<string, unknown>
+    } catch {
+      return {}
+    }
+  }
+  return {}
+}
+
 // Helper to convert AGE result to Plan
 function rowToPlan(row: Record<string, unknown>): Plan {
   const props = parseAGTypeProperties(row.p || row.plan || row.result)
@@ -28,7 +43,7 @@ function rowToPlan(row: Record<string, unknown>): Plan {
     name: String(props.name || ''),
     description: String(props.description || ''),
     status: (props.status as PlanStatus) || 'draft',
-    metadata: typeof props.metadata === 'string' ? JSON.parse(props.metadata) : (props.metadata as Record<string, unknown>) || {},
+    metadata: parseMetadata(props.metadata),
     tags: Array.isArray(props.tags) ? props.tags : [],
     createdAt: String(props.created_at || props.createdAt || ''),
     updatedAt: String(props.updated_at || props.updatedAt || ''),
@@ -43,34 +58,68 @@ function rowToTask(row: Record<string, unknown>): Task {
     id: String(props.id || ''),
     content: String(props.content || ''),
     status: (props.status as TaskStatus) || 'pending',
-    metadata: typeof props.metadata === 'string' ? JSON.parse(props.metadata) : (props.metadata as Record<string, unknown>) || {},
+    metadata: parseMetadata(props.metadata),
     tags: Array.isArray(props.tags) ? props.tags : [],
     createdAt: String(props.created_at || props.createdAt || ''),
     updatedAt: String(props.updated_at || props.updatedAt || '')
   }
 }
 
+// Helper to parse AGE array result (can be string or array)
+function parseAGArray(value: unknown): string[] {
+  if (!value) return []
+  if (Array.isArray(value)) {
+    return value.map(v => String(v)).filter(v => v && v !== 'null')
+  }
+  if (typeof value === 'string') {
+    // AGE returns arrays as strings like: ["id1", "id2"] or [null]
+    try {
+      const parsed = JSON.parse(value)
+      if (Array.isArray(parsed)) {
+        return parsed.map(v => String(v)).filter(v => v && v !== 'null')
+      }
+    } catch {
+      // Not valid JSON
+    }
+  }
+  return []
+}
+
 // Helper to convert AGE result to TaskInPlan
 function rowToTaskInPlan(row: Record<string, unknown>): TaskInPlan {
   const task = rowToTask(row)
-  const position = typeof row.position === 'number' ? row.position : 
-    (typeof row.position === 'string' ? parseFloat(row.position) : 0)
+  
+  // Parse position - AGE might return as string
+  let position = 0
+  if (typeof row.position === 'number') {
+    position = row.position
+  } else if (typeof row.position === 'string') {
+    position = parseFloat(row.position) || 0
+  }
+  
+  // Parse dependency arrays
+  const dependsOn = parseAGArray(row.depends_on)
+  const blocks = parseAGArray(row.blocks)
+  
+  console.log('rowToTaskInPlan:', { taskId: task.id, position, dependsOn, blocks, rawDepsOn: row.depends_on, rawBlocks: row.blocks })
   
   return {
     ...task,
     position,
-    dependsOn: Array.isArray(row.depends_on) ? row.depends_on : [],
-    blocks: Array.isArray(row.blocks) ? row.blocks : []
+    dependsOn,
+    blocks
   }
 }
 
 export function setupIpcHandlers(): void {
   // List plans with optional filtering
   ipcMain.handle('db:plans:list', async (_event, options?: ListPlansOptions) => {
+    console.log('db:plans:list called with options:', options)
+    
     let query = 'MATCH (p:Plan)'
     const conditions: string[] = []
     
-    if (options?.status) {
+    if (options?.status && options.status !== 'all') {
       conditions.push(`p.status = '${escapeCypherString(options.status)}'`)
     }
     
@@ -98,14 +147,21 @@ export function setupIpcHandlers(): void {
       query += ` SKIP ${options.offset}`
     }
     
+    console.log('Executing query:', query)
     const rows = await executeCypher<Record<string, unknown>>(query, 'p agtype, task_count agtype')
+    console.log('Query returned rows:', rows.length, rows)
     
-    return rows.map(row => {
+    const plans = rows.map(row => {
+      console.log('Processing row:', row)
       const plan = rowToPlan(row)
       plan.taskCount = typeof row.task_count === 'number' ? row.task_count : 
         (typeof row.task_count === 'string' ? parseInt(row.task_count, 10) : 0)
+      console.log('Converted to plan:', plan)
       return plan
     })
+    
+    console.log('Returning plans:', plans)
+    return plans
   })
 
   // Get a single plan with its tasks

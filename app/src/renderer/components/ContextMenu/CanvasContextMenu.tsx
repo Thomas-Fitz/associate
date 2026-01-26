@@ -6,10 +6,12 @@ import { useAppStore } from '../../stores/appStore'
 interface CanvasContextMenuProps {
   x: number
   y: number
+  canvasX?: number
+  canvasY?: number
   onClose: () => void
 }
 
-export function CanvasContextMenu({ x, y, onClose }: CanvasContextMenuProps) {
+export function CanvasContextMenu({ x, y, canvasX, canvasY, onClose }: CanvasContextMenuProps) {
   const { createTask } = useTasks()
   const { selectedPlan } = useAppStore()
   
@@ -17,11 +19,13 @@ export function CanvasContextMenu({ x, y, onClose }: CanvasContextMenuProps) {
     if (!selectedPlan) return
     
     try {
-      // Calculate position in canvas coordinates
-      // For now, use approximate position based on click location
+      // Use canvas coordinates if available, otherwise fall back to screen coords
+      const taskX = canvasX ?? x - 125
+      const taskY = canvasY ?? y - 75
+      
       const metadata = {
-        ui_x: x - 125, // Center the task on click
-        ui_y: y - 75,
+        ui_x: taskX - 125, // Center the task on the click position (task is 250px wide)
+        ui_y: taskY - 75,  // Center vertically (task is ~150px tall)
         ui_width: 250,
         ui_height: 150
       }

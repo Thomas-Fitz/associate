@@ -21,6 +21,8 @@ export default function App() {
         <CanvasContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
+          canvasX={contextMenu.canvasX}
+          canvasY={contextMenu.canvasY}
           onClose={hideContextMenu}
         />
       )}

@@ -21,6 +21,8 @@ interface AppState {
     visible: boolean
     x: number
     y: number
+    canvasX?: number  // Position in canvas/flow coordinates
+    canvasY?: number
     type: 'canvas' | 'task'
     taskId?: string
   } | null
@@ -45,7 +47,7 @@ interface AppState {
   toggleTaskSelection: (taskId: string, addToSelection?: boolean) => void
   clearTaskSelection: () => void
   
-  showContextMenu: (x: number, y: number, type: 'canvas' | 'task', taskId?: string) => void
+  showContextMenu: (x: number, y: number, type: 'canvas' | 'task', taskId?: string, canvasX?: number, canvasY?: number) => void
   hideContextMenu: () => void
   
   showDeleteDialog: (taskIds: string[]) => void
@@ -101,8 +103,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   
   clearTaskSelection: () => set({ selectedTaskIds: new Set() }),
   
-  showContextMenu: (x, y, type, taskId) => set({
-    contextMenu: { visible: true, x, y, type, taskId }
+  showContextMenu: (x, y, type, taskId, canvasX, canvasY) => set({
+    contextMenu: { visible: true, x, y, type, taskId, canvasX, canvasY }
   }),
   
   hideContextMenu: () => set({ contextMenu: null }),

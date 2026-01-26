@@ -11,14 +11,15 @@ services:
     volumes:
       - associate_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U associate -d associate"]
+      test: ["CMD-SHELL",s "pg_isready -U associate -d associate"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   age-viewer:
     build:
-      context: ./age-viewer
+      context: .
+      dockerfile: docker/age-viewer.Dockerfile
     container_name: associate-age-viewer
     depends_on:
       postgres:

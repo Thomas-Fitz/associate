@@ -133,48 +133,7 @@ Associate tools can be triggered manually through prompts or by updating your AG
 
 ### Graph Database Access
 
-Once the DB container is running, you can access the data in several ways:
-
-**AGE Viewer (Web UI):**
-
-[Apache AGE Viewer](https://github.com/apache/age-viewer) is included as a Docker service for visualizing and querying the graph database. It is built directly from the upstream repository at container build time -- no local clone needed.
-
-```bash
-# Start AGE Viewer (and postgres if not already running)
-docker-compose up -d age-viewer
-
-# Or start the full stack (postgres + age-viewer + associate)
-docker-compose up -d
-```
-
-Then open http://localhost:3000 in your browser. Connect with:
-- Host: `postgres`
-- Port: `5432`
-- Database: `associate`
-- Username: `associate`
-- Password: `password`
-
-After connecting, select the `associate` graph to browse Memory, Plan, and Task nodes and their relationships. You can run Cypher queries directly in the viewer's query editor.
-
-**Example Queries for AGE Viewer:**
-
-View all plans and their tasks:
-```sql
-SELECT * FROM cypher('associate', $$
-  MATCH (t:Task)-[r:PART_OF]->(p:Plan)
-  RETURN t, r, p
-$$) as (t agtype, r agtype, p agtype);
-```
-
-View everything in the graph (all nodes and relationships):
-```sql
-SELECT * FROM cypher('associate', $$
-  MATCH (a)-[r]->(b)
-  RETURN a, r, b
-$$) as (a agtype, r agtype, b agtype);
-```
-
-**Direct psql Access:**
+Once the DB container is running, you can access the data directly via psql:
 ```bash
 docker exec -it associate-postgres psql -U associate -d associate
 ```
@@ -299,9 +258,6 @@ The application runs as three Docker services:
 |---------|-------|------|-------------|
 | `postgres` | `apache/age:latest` | 5432 | PostgreSQL 17 with Apache AGE graph extension |
 | `associate` | Built from `Dockerfile` | 8080 | Go MCP server (stdio or HTTP transport) |
-| `age-viewer` | Built from `docker/age-viewer.Dockerfile` | 3000 | Web UI for graph visualization ([upstream repo](https://github.com/apache/age-viewer)) |
-
-The AGE Viewer container clones the upstream Apache AGE Viewer repository at build time and includes a compatibility patch for PostgreSQL 17 (the upstream project only ships metadata queries for PG 11-15).
 
 ## Configuration
 
@@ -339,11 +295,8 @@ go test -tags=integration ./internal/graph/...
 # Build binary
 go build -o associate ./cmd/associate
 
-# Build all Docker images (associate + age-viewer)
+# Build Docker image
 docker-compose build
-
-# Build only the AGE Viewer image
-docker-compose build age-viewer
 ```
 
 ## Roadmap
@@ -361,12 +314,6 @@ docker-compose build age-viewer
 - Ensure PostgreSQL container is running: `docker-compose ps`
 - Check container logs: `docker-compose logs postgres`
 - Verify AGE extension is loaded: `docker exec associate-postgres psql -U associate -d associate -c "SELECT * FROM pg_extension WHERE extname = 'age'"`
-
-**AGE Viewer issues:**
-- Check viewer logs: `docker-compose logs age-viewer`
-- The viewer takes ~15-20 seconds to start (React dev server compilation)
-- If the viewer connects but shows no graphs, verify the `associate` graph exists: `docker exec associate-postgres psql -U associate -d associate -c "LOAD 'age'; SET search_path = ag_catalog; SELECT name FROM ag_graph;"`
-- The viewer builds from the upstream repo at image build time; rebuild with `docker-compose build age-viewer` to pick up upstream changes
 
 **Migration from Neo4j:**
 This project was migrated from Neo4j to Apache AGE. If you have existing Neo4j data, you'll need to export and re-import it manually.

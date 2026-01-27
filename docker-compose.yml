@@ -16,18 +16,6 @@ services:
       timeout: 5s
       retries: 5
 
-  age-viewer:
-    build:
-      context: .
-      dockerfile: docker/age-viewer.Dockerfile
-    container_name: associate-age-viewer
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "3000:3000"
-    restart: unless-stopped
-
   associate:
     build: .
     container_name: associate-mcp

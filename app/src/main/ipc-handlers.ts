@@ -383,12 +383,12 @@ export function setupIpcHandlers(): void {
   })
 
   // Delete a dependency between tasks
-  ipcMain.handle('db:dependencies:delete', async (_event, sourceTaskId: string, targetTaskId: string): Promise<void> => {
+  ipcMain.handle('db:dependencies:delete', async (_event, sourceTaskId: string, targetTaskId: string, relationshipType: 'DEPENDS_ON' | 'BLOCKS' = 'DEPENDS_ON'): Promise<void> => {
     const escapedSource = escapeCypherString(sourceTaskId)
     const escapedTarget = escapeCypherString(targetTaskId)
     
     const query = `
-      MATCH (source:Task {id: '${escapedSource}'})-[r:DEPENDS_ON]->(target:Task {id: '${escapedTarget}'})
+      MATCH (source:Task {id: '${escapedSource}'})-[r:${relationshipType}]->(target:Task {id: '${escapedTarget}'})
       DELETE r
       RETURN source
     `

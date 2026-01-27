@@ -23,3 +23,12 @@ export interface TaskInPlan extends Task {
   dependsOn: string[]
   blocks: string[]
 }
+
+export type RelationshipType = 'DEPENDS_ON' | 'BLOCKS'
+
+export interface EdgeInfo {
+  id: string
+  sourceTaskId: string
+  targetTaskId: string
+  relationshipType: RelationshipType
+}

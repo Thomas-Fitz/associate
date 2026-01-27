@@ -292,11 +292,15 @@ function createMockAPI(): ElectronAPI {
         }
       },
       
-      delete: async (sourceTaskId: string, targetTaskId: string): Promise<void> => {
+      delete: async (sourceTaskId: string, targetTaskId: string, relationshipType: 'DEPENDS_ON' | 'BLOCKS' = 'DEPENDS_ON'): Promise<void> => {
         for (const planId in mockState.tasks) {
           const sourceTask = mockState.tasks[planId].find(t => t.id === sourceTaskId)
           if (sourceTask) {
-            sourceTask.dependsOn = sourceTask.dependsOn.filter(id => id !== targetTaskId)
+            if (relationshipType === 'DEPENDS_ON') {
+              sourceTask.dependsOn = sourceTask.dependsOn.filter(id => id !== targetTaskId)
+            } else {
+              sourceTask.blocks = sourceTask.blocks.filter(id => id !== targetTaskId)
+            }
             return
           }
         }

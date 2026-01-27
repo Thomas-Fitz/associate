@@ -20,7 +20,7 @@ import '@xyflow/react/dist/style.css'
 
 import { TaskNode, type TaskNodeData, type TaskNodeType } from './TaskNode'
 import { DependencyEdge, DependencyArrowMarker, type DependencyEdgeData, type DependencyEdgeType } from './DependencyEdge'
-import { usePlans, useTasks, useSelection } from '../../hooks'
+import { usePlans, useTasks, useSelection, useEdges } from '../../hooks'
 import { useAppStore } from '../../stores/appStore'
 
 const nodeTypes = { task: TaskNode }
@@ -35,6 +35,7 @@ export function PlanningWindow() {
     createDependency 
   } = useTasks()
   const { selectedTaskIds, selectTasks, clearSelection, isSelected } = useSelection()
+  const { selectedEdgeIds, selectEdges, clearEdgeSelection } = useEdges()
   const { showContextMenu } = useAppStore()
   
   const reactFlowRef = useRef<ReactFlowInstance<TaskNodeType, DependencyEdgeType> | null>(null)
@@ -55,6 +56,12 @@ export function PlanningWindow() {
   // Handle task context menu
   const handleTaskContextMenu = useCallback((e: React.MouseEvent, taskId: string) => {
     showContextMenu(e.clientX, e.clientY, 'task', taskId)
+  }, [showContextMenu])
+  
+  // Handle edge context menu - called by React Flow's onEdgeContextMenu
+  const handleEdgeContextMenu = useCallback((e: React.MouseEvent, edge: DependencyEdgeType) => {
+    e.preventDefault()
+    showContextMenu(e.clientX, e.clientY, 'edge', undefined, undefined, undefined, edge.id)
   }, [showContextMenu])
   
   // Convert tasks to React Flow nodes
@@ -145,6 +152,18 @@ export function PlanningWindow() {
     }))
   }, [selectedTaskIds, setNodes, isSelected])
   
+  // Update edge selection state
+  React.useEffect(() => {
+    if (isSelectingRef.current) {
+      return
+    }
+    
+    setEdges(edges => edges.map(edge => ({
+      ...edge,
+      selected: selectedEdgeIds.has(edge.id)
+    })))
+  }, [selectedEdgeIds, setEdges])
+  
   // Handle node changes (position, selection, etc.)
   const handleNodesChange: OnNodesChange<TaskNodeType> = useCallback((changes) => {
     onNodesChange(changes)
@@ -158,16 +177,19 @@ export function PlanningWindow() {
   }, [onNodesChange, updateTaskPosition])
   
   // Handle selection change from React Flow
-  const handleSelectionChange: OnSelectionChangeFunc = useCallback(({ nodes }) => {
+  const handleSelectionChange: OnSelectionChangeFunc = useCallback(({ nodes, edges }) => {
     // During a selection box drag, ignore callbacks that would clear the selection
     // These can happen due to React re-renders causing spurious events
     if (isSelectingRef.current && nodes.length === 0) {
       return
     }
     
-    const selectedIds = nodes.map(n => n.id)
-    selectTasks(selectedIds)
-  }, [selectTasks])
+    const selectedNodeIds = nodes.map(n => n.id)
+    selectTasks(selectedNodeIds)
+    
+    const selectedEdgeIdsList = edges.map(e => e.id)
+    selectEdges(selectedEdgeIdsList)
+  }, [selectTasks, selectEdges])
   
   // Handle connection (create dependency)
   const handleConnect: OnConnect = useCallback(async (connection) => {
@@ -181,8 +203,8 @@ export function PlanningWindow() {
     }
   }, [createDependency])
   
-  // Handle canvas context menu
-  const handleCanvasContextMenu = useCallback((e: React.MouseEvent) => {
+  // Handle pane (canvas) context menu - only fires on empty canvas, not on nodes or edges
+  const handlePaneContextMenu = useCallback((e: MouseEvent | React.MouseEvent) => {
     e.preventDefault()
     
     // Convert screen coordinates to canvas/flow coordinates
@@ -200,7 +222,8 @@ export function PlanningWindow() {
   // Handle click on empty canvas
   const handlePaneClick = useCallback(() => {
     clearSelection()
-  }, [clearSelection])
+    clearEdgeSelection()
+  }, [clearSelection, clearEdgeSelection])
   
   // Track selection box start/end to prevent spurious empty selection events
   const handleSelectionStart = useCallback(() => {
@@ -223,7 +246,7 @@ export function PlanningWindow() {
   }
   
   return (
-    <div className="flex-1 relative" onContextMenu={handleCanvasContextMenu}>
+    <div className="flex-1 relative">
       <DependencyArrowMarker />
       
       <ReactFlow
@@ -238,6 +261,8 @@ export function PlanningWindow() {
         onSelectionStart={handleSelectionStart}
         onSelectionEnd={handleSelectionEnd}
         onPaneClick={handlePaneClick}
+        onPaneContextMenu={handlePaneContextMenu}
+        onEdgeContextMenu={handleEdgeContextMenu}
         onInit={(instance) => { reactFlowRef.current = instance }}
         fitView
         minZoom={0.1}

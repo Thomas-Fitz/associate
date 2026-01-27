@@ -130,15 +130,21 @@ export function useTasks() {
   }, [db.dependencies, selectedPlan, updateTask])
   
   // Delete dependency
-  const deleteDependency = useCallback(async (sourceTaskId: string, targetTaskId: string) => {
-    await db.dependencies.delete(sourceTaskId, targetTaskId)
+  const deleteDependency = useCallback(async (sourceTaskId: string, targetTaskId: string, relationshipType: 'DEPENDS_ON' | 'BLOCKS' = 'DEPENDS_ON') => {
+    await db.dependencies.delete(sourceTaskId, targetTaskId, relationshipType)
     
     // Update local state
     const sourceTask = selectedPlan?.tasks.find(t => t.id === sourceTaskId)
     if (sourceTask) {
-      updateTask(sourceTaskId, {
-        dependsOn: sourceTask.dependsOn.filter(id => id !== targetTaskId)
-      })
+      if (relationshipType === 'DEPENDS_ON') {
+        updateTask(sourceTaskId, {
+          dependsOn: sourceTask.dependsOn.filter(id => id !== targetTaskId)
+        })
+      } else {
+        updateTask(sourceTaskId, {
+          blocks: sourceTask.blocks.filter(id => id !== targetTaskId)
+        })
+      }
     }
   }, [db.dependencies, selectedPlan, updateTask])
   

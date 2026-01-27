@@ -50,6 +50,7 @@ export function DependencyEdge({
     <BaseEdge
       id={id}
       path={edgePath}
+      interactionWidth={20}
       style={{
         stroke: isBlocks ? '#f97316' : '#64748b',
         strokeWidth: selected ? 3 : 2,

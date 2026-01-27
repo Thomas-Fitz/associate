@@ -35,8 +35,8 @@ const api = {
   dependencies: {
     create: (sourceTaskId: string, targetTaskId: string): Promise<void> => 
       ipcRenderer.invoke('db:dependencies:create', sourceTaskId, targetTaskId),
-    delete: (sourceTaskId: string, targetTaskId: string): Promise<void> => 
-      ipcRenderer.invoke('db:dependencies:delete', sourceTaskId, targetTaskId)
+    delete: (sourceTaskId: string, targetTaskId: string, relationshipType: 'DEPENDS_ON' | 'BLOCKS' = 'DEPENDS_ON'): Promise<void> => 
+      ipcRenderer.invoke('db:dependencies:delete', sourceTaskId, targetTaskId, relationshipType)
   }
 }
 

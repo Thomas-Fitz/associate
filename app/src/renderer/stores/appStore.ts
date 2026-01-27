@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Plan, TaskInPlan, PlanWithTasks, PlanStatus } from '../types'
+import type { Plan, TaskInPlan, PlanWithTasks, PlanStatus, EdgeInfo } from '../types'
 
 interface AppState {
   // Plans
@@ -15,6 +15,7 @@ interface AppState {
   
   // Selection
   selectedTaskIds: Set<string>
+  selectedEdgeIds: Set<string>
   
   // Context menu
   contextMenu: {
@@ -23,14 +24,20 @@ interface AppState {
     y: number
     canvasX?: number  // Position in canvas/flow coordinates
     canvasY?: number
-    type: 'canvas' | 'task'
+    type: 'canvas' | 'task' | 'edge'
     taskId?: string
+    edgeId?: string
   } | null
   
   // Dialogs
   deleteDialog: {
     visible: boolean
     taskIds: string[]
+  } | null
+  
+  deleteEdgeDialog: {
+    visible: boolean
+    edges: EdgeInfo[]
   } | null
   
   // Actions
@@ -47,11 +54,17 @@ interface AppState {
   toggleTaskSelection: (taskId: string, addToSelection?: boolean) => void
   clearTaskSelection: () => void
   
-  showContextMenu: (x: number, y: number, type: 'canvas' | 'task', taskId?: string, canvasX?: number, canvasY?: number) => void
+  setSelectedEdgeIds: (ids: Set<string>) => void
+  clearEdgeSelection: () => void
+  
+  showContextMenu: (x: number, y: number, type: 'canvas' | 'task' | 'edge', taskId?: string, canvasX?: number, canvasY?: number, edgeId?: string) => void
   hideContextMenu: () => void
   
   showDeleteDialog: (taskIds: string[]) => void
   hideDeleteDialog: () => void
+  
+  showDeleteEdgeDialog: (edges: EdgeInfo[]) => void
+  hideDeleteEdgeDialog: () => void
   
   // Task updates
   updateTask: (taskId: string, updates: Partial<TaskInPlan>) => void
@@ -72,9 +85,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   statusFilter: 'all',
   
   selectedTaskIds: new Set(),
+  selectedEdgeIds: new Set(),
   
   contextMenu: null,
   deleteDialog: null,
+  deleteEdgeDialog: null,
   
   // Actions
   setPlans: (plans) => set({ plans }),
@@ -103,8 +118,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   
   clearTaskSelection: () => set({ selectedTaskIds: new Set() }),
   
-  showContextMenu: (x, y, type, taskId, canvasX, canvasY) => set({
-    contextMenu: { visible: true, x, y, type, taskId, canvasX, canvasY }
+  setSelectedEdgeIds: (ids) => set({ selectedEdgeIds: ids }),
+  
+  clearEdgeSelection: () => set({ selectedEdgeIds: new Set() }),
+  
+  showContextMenu: (x, y, type, taskId, canvasX, canvasY, edgeId) => set({
+    contextMenu: { visible: true, x, y, type, taskId, canvasX, canvasY, edgeId }
   }),
   
   hideContextMenu: () => set({ contextMenu: null }),
@@ -114,6 +133,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   }),
   
   hideDeleteDialog: () => set({ deleteDialog: null }),
+  
+  showDeleteEdgeDialog: (edges) => set({
+    deleteEdgeDialog: { visible: true, edges }
+  }),
+  
+  hideDeleteEdgeDialog: () => set({ deleteEdgeDialog: null }),
   
   updateTask: (taskId, updates) => {
     const { selectedPlan } = get()

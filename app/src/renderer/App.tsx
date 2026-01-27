@@ -1,8 +1,8 @@
 import React from 'react'
 import { Sidebar } from './components/Sidebar'
 import { PlanningWindow } from './components/PlanningWindow'
-import { CanvasContextMenu, TaskContextMenu } from './components/ContextMenu'
-import { DeleteTaskDialog } from './components/Dialogs'
+import { CanvasContextMenu, TaskContextMenu, EdgeContextMenu } from './components/ContextMenu'
+import { DeleteTaskDialog, DeleteEdgeDialog } from './components/Dialogs'
 import { useAppStore } from './stores/appStore'
 
 export default function App() {
@@ -36,8 +36,18 @@ export default function App() {
         />
       )}
       
+      {contextMenu?.visible && contextMenu.type === 'edge' && contextMenu.edgeId && (
+        <EdgeContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          edgeId={contextMenu.edgeId}
+          onClose={hideContextMenu}
+        />
+      )}
+      
       {/* Dialogs */}
       <DeleteTaskDialog />
+      <DeleteEdgeDialog />
     </div>
   )
 }

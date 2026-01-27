@@ -16,6 +16,7 @@ export type TaskNodeType = Node<TaskNodeData, 'task'>
 
 interface TaskNodeProps {
   data: TaskNodeData
+  selected?: boolean // React Flow passes this for internal selection state
 }
 
 const MIN_WIDTH = 150
@@ -23,8 +24,13 @@ const MIN_HEIGHT = 100
 const DEFAULT_WIDTH = 250
 const DEFAULT_HEIGHT = 150
 
-function TaskNodeComponent({ data }: TaskNodeProps) {
+function TaskNodeComponent({ data, selected }: TaskNodeProps) {
   const { task, isSelected, onContentChange, onSizeChange, onContextMenu } = data
+  
+  // Use React Flow's selected prop OR our custom isSelected for visual state
+  // This ensures highlighting works both during selection box drag (selected) 
+  // and after selection is synced to our state (isSelected)
+  const showAsSelected = selected || isSelected
   
   const initialWidth = (task.metadata.ui_width as number) || DEFAULT_WIDTH
   const initialHeight = (task.metadata.ui_height as number) || DEFAULT_HEIGHT
@@ -112,7 +118,7 @@ function TaskNodeComponent({ data }: TaskNodeProps) {
       
       <div
         className={`bg-white rounded-lg shadow-md border-2 flex flex-col overflow-hidden relative
-                   ${isSelected ? 'border-primary-500 shadow-lg' : 'border-surface-200'}`}
+                   ${showAsSelected ? 'border-primary-500 shadow-lg' : 'border-surface-200'}`}
         style={{ width: size.width, height: size.height }}
         onContextMenu={handleContextMenu}
       >
@@ -121,7 +127,7 @@ function TaskNodeComponent({ data }: TaskNodeProps) {
           taskId={task.id}
           position={positionNum}
           status={task.status}
-          isSelected={isSelected}
+          isSelected={showAsSelected}
         />
         
         {/* Description - editable, nodrag to prevent dragging when editing */}

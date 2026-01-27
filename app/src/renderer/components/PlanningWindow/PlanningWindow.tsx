@@ -39,6 +39,9 @@ export function PlanningWindow() {
   
   const reactFlowRef = useRef<ReactFlowInstance<TaskNodeType, DependencyEdgeType> | null>(null)
   
+  // Track if we're currently in a selection box drag to prevent clearing selection
+  const isSelectingRef = useRef(false)
+  
   // Handle content change
   const handleContentChange = useCallback(async (taskId: string, content: string) => {
     await updateTaskContent(taskId, { content })
@@ -55,6 +58,8 @@ export function PlanningWindow() {
   }, [showContextMenu])
   
   // Convert tasks to React Flow nodes
+  // NOTE: We don't include isSelected here - selection state is managed separately
+  // to avoid recreating nodes when selection changes (which would reset positions, etc.)
   const initialNodes = useMemo((): TaskNodeType[] => {
     if (!selectedPlan?.tasks) return []
     
@@ -67,13 +72,13 @@ export function PlanningWindow() {
       },
       data: {
         task,
-        isSelected: isSelected(task.id),
+        isSelected: false, // Initial state, will be updated by selection effect
         onContentChange: handleContentChange,
         onSizeChange: handleSizeChange,
         onContextMenu: handleTaskContextMenu
       }
     }))
-  }, [selectedPlan?.tasks, isSelected, handleContentChange, handleSizeChange, handleTaskContextMenu])
+  }, [selectedPlan?.tasks, handleContentChange, handleSizeChange, handleTaskContextMenu])
   
   // Convert dependencies to React Flow edges
   const initialEdges = useMemo((): DependencyEdgeType[] => {
@@ -120,18 +125,27 @@ export function PlanningWindow() {
     setEdges(initialEdges)
   }, [initialEdges, setEdges])
   
-  // Update node selection state
+  // Update node selection state - sync both React Flow's 'selected' and our custom 'isSelected'
+  // Skip during active selection box drag to avoid interfering with React Flow's selection
   React.useEffect(() => {
-    setNodes(nodes => nodes.map(node => ({
-      ...node,
-      data: {
-        ...node.data,
-        isSelected: isSelected(node.id)
+    if (isSelectingRef.current) {
+      return
+    }
+    
+    setNodes(nodes => nodes.map(node => {
+      const nodeIsSelected = isSelected(node.id)
+      return {
+        ...node,
+        selected: nodeIsSelected,
+        data: {
+          ...node.data,
+          isSelected: nodeIsSelected
+        }
       }
-    })))
+    }))
   }, [selectedTaskIds, setNodes, isSelected])
   
-  // Handle node position change (drag end)
+  // Handle node changes (position, selection, etc.)
   const handleNodesChange: OnNodesChange<TaskNodeType> = useCallback((changes) => {
     onNodesChange(changes)
     
@@ -143,8 +157,14 @@ export function PlanningWindow() {
     }
   }, [onNodesChange, updateTaskPosition])
   
-  // Handle selection change
+  // Handle selection change from React Flow
   const handleSelectionChange: OnSelectionChangeFunc = useCallback(({ nodes }) => {
+    // During a selection box drag, ignore callbacks that would clear the selection
+    // These can happen due to React re-renders causing spurious events
+    if (isSelectingRef.current && nodes.length === 0) {
+      return
+    }
+    
     const selectedIds = nodes.map(n => n.id)
     selectTasks(selectedIds)
   }, [selectTasks])
@@ -182,6 +202,15 @@ export function PlanningWindow() {
     clearSelection()
   }, [clearSelection])
   
+  // Track selection box start/end to prevent spurious empty selection events
+  const handleSelectionStart = useCallback(() => {
+    isSelectingRef.current = true
+  }, [])
+  
+  const handleSelectionEnd = useCallback(() => {
+    isSelectingRef.current = false
+  }, [])
+  
   if (!selectedPlan) {
     return (
       <div className="flex-1 flex items-center justify-center bg-surface-50">
@@ -206,6 +235,8 @@ export function PlanningWindow() {
         onEdgesChange={onEdgesChange}
         onConnect={handleConnect}
         onSelectionChange={handleSelectionChange}
+        onSelectionStart={handleSelectionStart}
+        onSelectionEnd={handleSelectionEnd}
         onPaneClick={handlePaneClick}
         onInit={(instance) => { reactFlowRef.current = instance }}
         fitView

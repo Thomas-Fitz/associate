@@ -1,11 +1,11 @@
-module github.com/fitz/associate
+module github.com/Thomas-Fitz/associate
 
 go 1.25.5
 
 require (
 	github.com/google/uuid v1.6.0
+	github.com/lib/pq v1.10.9
 	github.com/modelcontextprotocol/go-sdk v1.2.0
-	github.com/neo4j/neo4j-go-driver/v5 v5.28.4
 )
 
 require (

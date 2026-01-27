@@ -4,22 +4,24 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/fitz/associate/internal/models"
+	"github.com/Thomas-Fitz/associate/internal/models"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // CreateTaskInput defines the input for the create_task tool.
 type CreateTaskInput struct {
-	Content    string         `json:"content" jsonschema:"required,The content/description of the task"`
-	PlanIDs    []string       `json:"plan_ids" jsonschema:"required,IDs of plans this task belongs to (at least one required, creates PART_OF relationships)"`
-	Status     string         `json:"status,omitempty" jsonschema:"Task status: pending, in_progress, completed, cancelled, blocked (default: pending)"`
-	Metadata   map[string]any `json:"metadata,omitempty" jsonschema:"Key-value metadata to attach to the task"`
-	Tags       []string       `json:"tags,omitempty" jsonschema:"Tags for categorizing the task"`
-	DependsOn  []string       `json:"depends_on,omitempty" jsonschema:"IDs of tasks this depends on using DEPENDS_ON"`
-	Blocks     []string       `json:"blocks,omitempty" jsonschema:"IDs of tasks this blocks using BLOCKS"`
-	Follows    []string       `json:"follows,omitempty" jsonschema:"IDs of tasks this follows in sequence using FOLLOWS"`
-	RelatedTo  []string       `json:"related_to,omitempty" jsonschema:"IDs of nodes to connect using RELATES_TO"`
-	References []string       `json:"references,omitempty" jsonschema:"IDs of nodes this references using REFERENCES"`
+	Content      string         `json:"content" jsonschema:"required,The content/description of the task"`
+	PlanIDs      []string       `json:"plan_ids" jsonschema:"required,IDs of plans this task belongs to (at least one required, creates PART_OF relationships)"`
+	Status       string         `json:"status,omitempty" jsonschema:"Task status: pending, in_progress, completed, cancelled, blocked (default: pending)"`
+	Metadata     map[string]any `json:"metadata,omitempty" jsonschema:"Key-value metadata to attach to the task"`
+	Tags         []string       `json:"tags,omitempty" jsonschema:"Tags for categorizing the task"`
+	AfterTaskID  *string        `json:"after_task_id,omitempty" jsonschema:"ID of task to position this task after (within each plan). If not specified, appends to end."`
+	BeforeTaskID *string        `json:"before_task_id,omitempty" jsonschema:"ID of task to position this task before (within each plan). Takes precedence for positioning if both after and before are specified."`
+	DependsOn    []string       `json:"depends_on,omitempty" jsonschema:"IDs of tasks this depends on using DEPENDS_ON"`
+	Blocks       []string       `json:"blocks,omitempty" jsonschema:"IDs of tasks this blocks using BLOCKS"`
+	Follows      []string       `json:"follows,omitempty" jsonschema:"IDs of tasks this follows in sequence using FOLLOWS"`
+	RelatedTo    []string       `json:"related_to,omitempty" jsonschema:"IDs of nodes to connect using RELATES_TO"`
+	References   []string       `json:"references,omitempty" jsonschema:"IDs of nodes this references using REFERENCES"`
 }
 
 // CreateTaskOutput defines the output for the create_task tool.
@@ -78,7 +80,7 @@ func (h *Handler) HandleCreateTask(ctx context.Context, req *mcp.CallToolRequest
 		input.DependsOn, input.Blocks, input.Follows, nil,
 	)
 
-	created, err := h.TaskRepo.Add(ctx, task, input.PlanIDs, rels)
+	created, err := h.TaskRepo.Add(ctx, task, input.PlanIDs, rels, input.AfterTaskID, input.BeforeTaskID)
 	if err != nil {
 		h.Logger.Error("create_task failed", "error", err)
 		return nil, CreateTaskOutput{}, fmt.Errorf("failed to create task: %w", err)

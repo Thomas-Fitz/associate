@@ -5,21 +5,21 @@ import (
 	"encoding/json"
 	"log/slog"
 
-	"github.com/fitz/associate/internal/models"
-	"github.com/fitz/associate/internal/neo4j"
+	"github.com/Thomas-Fitz/associate/internal/graph"
+	"github.com/Thomas-Fitz/associate/internal/models"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Handler provides the dependencies needed by tool handlers.
 type Handler struct {
-	Repo     *neo4j.Repository
-	PlanRepo *neo4j.PlanRepository
-	TaskRepo *neo4j.TaskRepository
+	Repo     *graph.Repository
+	PlanRepo *graph.PlanRepository
+	TaskRepo *graph.TaskRepository
 	Logger   *slog.Logger
 }
 
 // NewHandler creates a new Handler with the given dependencies.
-func NewHandler(repo *neo4j.Repository, planRepo *neo4j.PlanRepository, taskRepo *neo4j.TaskRepository, logger *slog.Logger) *Handler {
+func NewHandler(repo *graph.Repository, planRepo *graph.PlanRepository, taskRepo *graph.TaskRepository, logger *slog.Logger) *Handler {
 	return &Handler{
 		Repo:     repo,
 		PlanRepo: planRepo,

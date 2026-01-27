@@ -28,9 +28,19 @@ go.work.sum
 .env
 
 # Editor/IDE
-# .idea/
-# .vscode/
+.idea/
+.vscode/
+.opencode/
 bin/associate
 WORKING_MEMORY.md
 ./bin/associate
+
+# Node.js / React / Electron (app/)
+app/node_modules/
+app/out/
+app/dist/
+app/build/
+app/*.log
+app/*.local
+app/.DS_Store
 

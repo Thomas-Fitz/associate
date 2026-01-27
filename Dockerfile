@@ -23,11 +23,12 @@ RUN apk add --no-cache ca-certificates
 
 COPY --from=builder /associate /associate
 
-# Default environment for Neo4j connection
-ENV NEO4J_URI=bolt://neo4j:7687
-ENV NEO4J_USERNAME=neo4j
-ENV NEO4J_PASSWORD=password
-ENV NEO4J_DATABASE=neo4j
+# Default environment for PostgreSQL/AGE connection
+ENV DB_HOST=postgres
+ENV DB_PORT=5432
+ENV DB_USERNAME=associate
+ENV DB_PASSWORD=password
+ENV DB_DATABASE=associate
 
 EXPOSE 8080
 

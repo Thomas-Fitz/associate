@@ -11,15 +11,15 @@ import (
 	"syscall"
 	"time"
 
-	mcpserver "github.com/fitz/associate/internal/mcp"
-	"github.com/fitz/associate/internal/neo4j"
+	"github.com/Thomas-Fitz/associate/internal/graph"
+	mcpserver "github.com/Thomas-Fitz/associate/internal/mcp"
 )
 
 func main() {
 	// Parse flags
 	httpMode := flag.Bool("http", false, "Run as HTTP server (default: stdio for MCP)")
 	port := flag.Int("port", 8080, "HTTP port to listen on (only used with -http)")
-	waitForDB := flag.Bool("wait", true, "Wait for Neo4j to be available (with retries)")
+	waitForDB := flag.Bool("wait", true, "Wait for PostgreSQL/AGE to be available (with retries)")
 	flag.Parse()
 
 	// Setup logger
@@ -39,33 +39,33 @@ func main() {
 		cancel()
 	}()
 
-	// Connect to Neo4j
-	cfg := neo4j.ConfigFromEnv()
-	logger.Info("connecting to Neo4j", "uri", cfg.URI, "database", cfg.Database)
+	// Connect to PostgreSQL/AGE
+	cfg := graph.ConfigFromEnv()
+	logger.Info("connecting to PostgreSQL/AGE", "host", cfg.Host, "port", cfg.Port, "database", cfg.Database)
 
-	var client *neo4j.Client
+	var client *graph.Client
 	var err error
 
 	if *waitForDB {
-		// Use retry logic - useful when starting before Neo4j is ready
-		logger.Info("waiting for Neo4j to be available...")
-		client, err = neo4j.NewClientWithRetry(ctx, cfg, nil)
+		// Use retry logic - useful when starting before PostgreSQL is ready
+		logger.Info("waiting for PostgreSQL/AGE to be available...")
+		client, err = graph.NewClientWithRetry(ctx, cfg, nil)
 	} else {
-		// Direct connection - fails immediately if Neo4j unavailable
-		client, err = neo4j.NewClient(ctx, cfg)
+		// Direct connection - fails immediately if PostgreSQL unavailable
+		client, err = graph.NewClient(ctx, cfg)
 	}
 	if err != nil {
-		logger.Error("failed to connect to Neo4j", "error", err)
+		logger.Error("failed to connect to PostgreSQL/AGE", "error", err)
 		os.Exit(1)
 	}
 	defer client.Close(ctx)
 
-	logger.Info("connected to Neo4j")
+	logger.Info("connected to PostgreSQL/AGE")
 
 	// Create repositories and MCP server
-	repo := neo4j.NewRepository(client)
-	planRepo := neo4j.NewPlanRepository(client)
-	taskRepo := neo4j.NewTaskRepository(client)
+	repo := graph.NewRepository(client)
+	planRepo := graph.NewPlanRepository(client)
+	taskRepo := graph.NewTaskRepository(client)
 	server := mcpserver.NewServer(repo, planRepo, taskRepo, logger)
 
 	if *httpMode {

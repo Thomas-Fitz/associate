@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom styles for the app */
+:root {
+  --sidebar-width: 250px;
+  --header-height: 40px;
+}
+
+body {
+  @apply bg-surface-100 text-surface-900 overflow-hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+}
+
+/* React Flow customization */
+.react-flow__node-task {
+  @apply p-0 !important;
+  background: transparent !important;
+  border: none !important;
+}
+
+.react-flow__handle {
+  @apply w-3 h-3 bg-primary-500 border-2 border-white rounded-full opacity-0 transition-opacity;
+}
+
+.react-flow__node:hover .react-flow__handle {
+  @apply opacity-100;
+}
+
+.react-flow__handle-left {
+  @apply left-0 -translate-x-1/2;
+}
+
+.react-flow__handle-right {
+  @apply right-0 translate-x-1/2;
+}
+
+.react-flow__edge-path {
+  stroke-width: 2;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  @apply stroke-primary-500;
+}
+
+/* Ensure edges are visible above nodes */
+.react-flow__edges {
+  z-index: 1000 !important;
+}
+
+.react-flow__edge {
+  pointer-events: visibleStroke;
+}
+
+/* Selection rectangle */
+.react-flow__selection {
+  @apply bg-primary-500/10 border border-primary-500;
+}
+
+/* Minimap */
+.react-flow__minimap {
+  @apply bg-surface-50 border border-surface-200 rounded-lg;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  @apply w-2 h-2;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-surface-100;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-surface-300 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-surface-400;
+}
+
+/* Context menu */
+.context-menu {
+  @apply absolute bg-white border border-surface-200 rounded-lg shadow-lg py-1 z-50 min-w-[160px];
+}
+
+.context-menu-item {
+  @apply px-3 py-2 cursor-pointer hover:bg-surface-100 flex items-center gap-2 text-sm;
+}
+
+.context-menu-item.danger {
+  @apply text-red-600 hover:bg-red-50;
+}
+
+.context-menu-separator {
+  @apply border-t border-surface-200 my-1;
+}
+
+/* Dialog overlay */
+.dialog-overlay {
+  @apply fixed inset-0 bg-black/50 flex items-center justify-center z-50;
+}
+
+.dialog-content {
+  @apply bg-white rounded-lg shadow-xl max-w-md w-full mx-4;
+}

@@ -310,6 +310,23 @@ docker-compose build
 
 ## Troubleshooting
 
+**"role 'associate' does not exist" error:**
+
+This error occurs when the PostgreSQL data volume was initialized with a different user configuration. To fix:
+
+```bash
+# Stop containers and remove the data volume
+docker-compose down -v
+
+# Start fresh with proper initialization
+docker-compose up -d
+```
+
+Note: This will delete all stored data. If you need to preserve data, you can manually create the role by connecting to the database and running:
+```sql
+CREATE ROLE associate WITH SUPERUSER LOGIN PASSWORD 'password';
+```
+
 **Connection issues:**
 - Ensure PostgreSQL container is running: `docker-compose ps`
 - Check container logs: `docker-compose logs postgres`

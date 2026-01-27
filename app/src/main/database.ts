@@ -10,7 +10,7 @@ export interface DatabaseConfig {
 
 const defaultConfig: DatabaseConfig = {
   host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT || '5432', 10),
+  port: parseInt(process.env.DB_PORT || '5433', 10),
   database: process.env.DB_DATABASE || 'associate',
   user: process.env.DB_USERNAME || 'associate',
   password: process.env.DB_PASSWORD || 'password'

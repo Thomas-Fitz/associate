@@ -256,7 +256,7 @@ The application runs as three Docker services:
 
 | Service | Image | Port | Description |
 |---------|-------|------|-------------|
-| `postgres` | `apache/age:latest` | 5432 | PostgreSQL 17 with Apache AGE graph extension |
+| `postgres` | `apache/age:latest` | 5433 (configurable via `DB_PORT`) | PostgreSQL 17 with Apache AGE graph extension |
 | `associate` | Built from `Dockerfile` | 8080 | Go MCP server (stdio or HTTP transport) |
 
 ## Configuration
@@ -266,7 +266,7 @@ Environment variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DB_HOST` | `localhost` | PostgreSQL host |
-| `DB_PORT` | `5432` | PostgreSQL port |
+| `DB_PORT` | `5433` | PostgreSQL port (uses 5433 to avoid conflicts with local PostgreSQL) |
 | `DB_USERNAME` | `associate` | PostgreSQL username |
 | `DB_PASSWORD` | `password` | PostgreSQL password |
 | `DB_DATABASE` | `associate` | PostgreSQL database name |
@@ -312,25 +312,39 @@ docker-compose build
 
 **"role 'associate' does not exist" error:**
 
-This error occurs when the PostgreSQL data volume was initialized with a different user configuration. To fix:
+This error can occur in two scenarios:
 
-```bash
-# Stop containers and remove the data volume
-docker-compose down -v
+1. **Port conflict with local PostgreSQL**: If you have PostgreSQL installed locally (e.g., via Homebrew), it may be listening on port 5432, causing the Electron app to connect to the wrong database. The Docker container now uses port 5433 by default to avoid this conflict. Make sure to restart Docker after pulling the latest changes:
+   ```bash
+   docker-compose down
+   docker-compose up -d
+   ```
 
-# Start fresh with proper initialization
-docker-compose up -d
-```
+2. **Stale Docker volume**: The PostgreSQL data volume was initialized with a different user configuration. To fix:
+   ```bash
+   # Stop containers and remove the data volume
+   docker-compose down -v
 
-Note: This will delete all stored data. If you need to preserve data, you can manually create the role by connecting to the database and running:
-```sql
-CREATE ROLE associate WITH SUPERUSER LOGIN PASSWORD 'password';
-```
+   # Start fresh with proper initialization
+   docker-compose up -d
+   ```
+   Note: This will delete all stored data.
 
 **Connection issues:**
 - Ensure PostgreSQL container is running: `docker-compose ps`
 - Check container logs: `docker-compose logs postgres`
+- Verify the app is connecting to the right port (5433 for Docker, not 5432 for local PostgreSQL)
 - Verify AGE extension is loaded: `docker exec associate-postgres psql -U associate -d associate -c "SELECT * FROM pg_extension WHERE extname = 'age'"`
+
+**Port configuration:**
+If you need to use a different port, set the `DB_PORT` environment variable:
+```bash
+# In docker-compose, change the host port
+DB_PORT=5434 docker-compose up -d
+
+# For the Electron app, set environment variable before running
+DB_PORT=5434 npm run dev
+```
 
 **Migration from Neo4j:**
 This project was migrated from Neo4j to Apache AGE. If you have existing Neo4j data, you'll need to export and re-import it manually.

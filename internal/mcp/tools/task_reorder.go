@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/fitz/associate/internal/graph"
+	"github.com/Thomas-Fitz/associate/internal/graph"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

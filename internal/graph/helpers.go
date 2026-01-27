@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fitz/associate/internal/models"
+	"github.com/Thomas-Fitz/associate/internal/models"
 )
 
 // ValidRelationTypes is the complete set of allowed relationship type names.

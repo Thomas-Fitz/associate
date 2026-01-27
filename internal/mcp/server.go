@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/fitz/associate/internal/graph"
-	"github.com/fitz/associate/internal/mcp/tools"
+	"github.com/Thomas-Fitz/associate/internal/graph"
+	"github.com/Thomas-Fitz/associate/internal/mcp/tools"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

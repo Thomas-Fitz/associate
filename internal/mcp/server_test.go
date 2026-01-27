@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fitz/associate/internal/mcp/tools"
-	"github.com/fitz/associate/internal/models"
+	"github.com/Thomas-Fitz/associate/internal/mcp/tools"
+	"github.com/Thomas-Fitz/associate/internal/models"
 )
 
 // MockRepository implements a mock for testing

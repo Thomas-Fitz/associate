@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fitz/associate/internal/mcp/tools"
+	"github.com/Thomas-Fitz/associate/internal/mcp/tools"
 )
 
 // Tests for Plan tool input/output validation

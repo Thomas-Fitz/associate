@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fitz/associate/internal/models"
+	"github.com/Thomas-Fitz/associate/internal/models"
 	"github.com/google/uuid"
 )
 

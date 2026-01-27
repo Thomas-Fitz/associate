@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fitz/associate/internal/models"
+	"github.com/Thomas-Fitz/associate/internal/models"
 )
 
 // TestPersistence_SurvivesRestart verifies that data persists across database restarts.

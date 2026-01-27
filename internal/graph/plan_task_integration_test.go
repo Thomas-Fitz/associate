@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fitz/associate/internal/models"
+	"github.com/Thomas-Fitz/associate/internal/models"
 )
 
 // Integration test helper to get a connected client

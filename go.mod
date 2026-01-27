@@ -1,4 +1,4 @@
-module github.com/fitz/associate
+module github.com/Thomas-Fitz/associate
 
 go 1.25.5
 

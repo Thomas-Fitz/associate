@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fitz/associate/internal/models"
+	"github.com/Thomas-Fitz/associate/internal/models"
 )
 
 // TestTaskDependencyCreation tests adding DEPENDS_ON relationships between tasks

@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"log/slog"
 
-	"github.com/fitz/associate/internal/graph"
-	"github.com/fitz/associate/internal/models"
+	"github.com/Thomas-Fitz/associate/internal/graph"
+	"github.com/Thomas-Fitz/associate/internal/models"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

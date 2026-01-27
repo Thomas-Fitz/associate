@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/fitz/associate/internal/graph"
-	mcpserver "github.com/fitz/associate/internal/mcp"
+	"github.com/Thomas-Fitz/associate/internal/graph"
+	mcpserver "github.com/Thomas-Fitz/associate/internal/mcp"
 )
 
 func main() {

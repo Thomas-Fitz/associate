@@ -531,14 +531,15 @@ func (r *TaskRepository) createRelationshipFromTask(ctx context.Context, tx *sql
 		return nil
 	}
 
-	// Create
+	// Create - use label() function for AGE-compatible label filtering
 	createCypher := fmt.Sprintf(
 		`MATCH (a:Task {id: '%s'}), (b)
-		 WHERE b.id = '%s' AND (b:Memory OR b:Plan OR b:Task)
+		 WHERE b.id = '%s' AND %s
 		 CREATE (a)-[r:%s]->(b)
 		 RETURN r`,
 		EscapeCypherString(fromID),
 		EscapeCypherString(toID),
+		NodeLabelPredicate("b"),
 		relType)
 
 	createRows, err := r.client.execCypher(ctx, tx, createCypher, "r agtype")

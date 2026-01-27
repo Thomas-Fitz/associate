@@ -471,14 +471,15 @@ func (r *PlanRepository) createRelationshipFromPlan(ctx context.Context, tx *sql
 		return nil
 	}
 
-	// Create the relationship
+	// Create the relationship - use label() function for AGE-compatible label filtering
 	createCypher := fmt.Sprintf(
 		`MATCH (a:Plan {id: '%s'}), (b)
-		 WHERE b.id = '%s' AND (b:Memory OR b:Plan OR b:Task)
+		 WHERE b.id = '%s' AND %s
 		 CREATE (a)-[r:%s]->(b)
 		 RETURN r`,
 		EscapeCypherString(fromID),
 		EscapeCypherString(toID),
+		NodeLabelPredicate("b"),
 		relType,
 	)
 

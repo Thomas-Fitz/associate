@@ -415,9 +415,9 @@ func (r *Repository) GetRelated(ctx context.Context, id string, relationType str
 
 			cypher := fmt.Sprintf(
 				`MATCH (a {id: '%s'})%s(b)
-				 WHERE (b:Memory OR b:Plan OR b:Task)
+				 WHERE %s
 				 RETURN b, type(r), b.node_type`,
-				EscapeCypherString(currentID), relPattern)
+				EscapeCypherString(currentID), relPattern, NodeLabelPredicate("b"))
 
 			rows, err := r.client.execCypher(ctx, tx, cypher, "b agtype, rel_type agtype, node_type agtype")
 			if err != nil {
@@ -537,14 +537,16 @@ func (r *Repository) createRelationship(ctx context.Context, tx *sql.Tx, fromID,
 		return nil // Relationship already exists
 	}
 
-	// Create the relationship
+	// Create the relationship - use label() function for AGE-compatible label filtering
 	createCypher := fmt.Sprintf(
 		`MATCH (a), (b)
-		 WHERE a.id = '%s' AND b.id = '%s' AND (a:Memory OR a:Plan OR a:Task) AND (b:Memory OR b:Plan OR b:Task)
+		 WHERE a.id = '%s' AND b.id = '%s' AND %s AND %s
 		 CREATE (a)-[r:%s]->(b)
 		 RETURN r`,
 		EscapeCypherString(fromID),
 		EscapeCypherString(toID),
+		NodeLabelPredicate("a"),
+		NodeLabelPredicate("b"),
 		relType,
 	)
 

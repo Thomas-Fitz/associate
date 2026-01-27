@@ -41,6 +41,13 @@ func EscapeCypherString(s string) string {
 	return s
 }
 
+// NodeLabelPredicate returns an AGE-compatible label predicate for use in WHERE clauses.
+// Apache AGE doesn't support the standard Cypher "node:Label" syntax in WHERE clauses.
+// Instead, we use the label() function: label(node) IN ['Memory', 'Plan', 'Task']
+func NodeLabelPredicate(nodeVar string) string {
+	return fmt.Sprintf("label(%s) IN ['Memory', 'Plan', 'Task']", nodeVar)
+}
+
 // tagsToCypherList converts a Go string slice to a Cypher list literal.
 func tagsToCypherList(tags []string) string {
 	if len(tags) == 0 {

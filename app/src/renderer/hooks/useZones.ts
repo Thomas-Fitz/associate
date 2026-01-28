@@ -10,12 +10,14 @@ export function useZones() {
     selectedZone,
     zonesLoading,
     zonesError,
+    selectedZoneLoading,
     searchQuery,
     setZones,
     setSelectedZoneId,
     setSelectedZone,
     setZonesLoading,
-    setZonesError
+    setZonesError,
+    setSelectedZoneLoading
   } = useAppStore()
   
   // Load zones list
@@ -42,14 +44,17 @@ export function useZones() {
   
   // Load selected zone with contents
   const loadSelectedZone = useCallback(async (zoneId: string) => {
+    setSelectedZoneLoading(true)
     try {
       const zone = await db.zones.get(zoneId)
       setSelectedZone(zone)
     } catch (err) {
       console.error('Failed to load zone:', err)
       setSelectedZone(null)
+    } finally {
+      setSelectedZoneLoading(false)
     }
-  }, [db.zones, setSelectedZone])
+  }, [db.zones, setSelectedZone, setSelectedZoneLoading])
   
   // Select a zone
   const selectZone = useCallback((zoneId: string | null) => {
@@ -113,6 +118,7 @@ export function useZones() {
     selectedZone,
     loading: zonesLoading,
     error: zonesError,
+    selectedZoneLoading,
     selectZone,
     createZone,
     renameZone,

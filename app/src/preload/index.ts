@@ -55,7 +55,9 @@ const api = {
     delete: (taskId: string): Promise<void> => 
       ipcRenderer.invoke('db:tasks:delete', taskId),
     reorder: (planId: string, taskIds: string[]): Promise<void> => 
-      ipcRenderer.invoke('db:tasks:reorder', planId, taskIds)
+      ipcRenderer.invoke('db:tasks:reorder', planId, taskIds),
+    move: (taskId: string, newPlanId: string, options?: { position?: number; metadata?: Record<string, unknown> }): Promise<Task> =>
+      ipcRenderer.invoke('db:tasks:move', taskId, newPlanId, options)
   },
   
   // Dependency operations

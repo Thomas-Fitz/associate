@@ -414,6 +414,63 @@ export function setupIpcHandlers(): void {
     }
   )
 
+  /**
+   * Move a task to a different plan.
+   * Removes the old PART_OF relationship and creates a new one with position.
+   */
+  ipcMain.handle(
+    'db:tasks:move',
+    async (_event, taskId: string, newPlanId: string, options?: { position?: number; metadata?: Record<string, unknown> }): Promise<Task> => {
+      const client = await getClient()
+
+      try {
+        await client.query('BEGIN')
+
+        // Calculate position if not provided
+        let position = options?.position
+        if (position === undefined) {
+          const maxPosQuery = TaskQueries.maxPositionInPlan(newPlanId)
+          const posRows = await executeCypherInTransaction<{ max_pos: unknown }>(
+            client,
+            maxPosQuery,
+            'max_pos agtype'
+          )
+          const maxPos = posRows[0]?.max_pos
+          position = (typeof maxPos === 'number' ? maxPos : 0) + 1000
+        }
+
+        // Move the task to the new plan
+        const moveQuery = TaskQueries.moveToPlan(taskId, newPlanId, position)
+        const moveRows = await executeCypherInTransaction<Record<string, unknown>>(
+          client,
+          moveQuery,
+          't agtype'
+        )
+
+        if (moveRows.length === 0) {
+          throw new Error(`Task not found: ${taskId}`)
+        }
+
+        // Update metadata if provided (e.g., new position on canvas)
+        if (options?.metadata) {
+          const now = new Date().toISOString()
+          const sets: string[] = [`t.updated_at = '${now}'`, `t.metadata = '${metadataToJSON(options.metadata)}'`]
+          const updateQuery = TaskQueries.update(taskId, sets)
+          await executeCypherInTransaction(client, updateQuery, 't agtype')
+        }
+
+        await client.query('COMMIT')
+
+        return rowToTask(moveRows[0])
+      } catch (err) {
+        await client.query('ROLLBACK')
+        throw err
+      } finally {
+        client.release()
+      }
+    }
+  )
+
   // --------------------------------------------------------------------------
   // Dependency Handlers
   // --------------------------------------------------------------------------

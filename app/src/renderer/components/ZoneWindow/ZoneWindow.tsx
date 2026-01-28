@@ -21,6 +21,7 @@ import { MemoryNode, type MemoryNodeData, type MemoryNodeType } from './MemoryNo
 import { ZoneTaskNode, type ZoneTaskNodeData, type ZoneTaskNodeType } from './ZoneTaskNode'
 import { DependencyEdge, DependencyArrowMarker, type DependencyEdgeType } from '../PlanningWindow/DependencyEdge'
 import { useZones } from '../../hooks/useZones'
+import { useToast } from '../../hooks'
 import { useAppStore } from '../../stores/appStore'
 import { useDatabase } from '../../hooks/useDatabase'
 import type { ZoneWithContents } from '../../types/zone'
@@ -159,9 +160,10 @@ function createEdgesFromZone(zone: ZoneWithContents): ZoneEdge[] {
 }
 
 export function ZoneWindow() {
-  const { selectedZone, refreshSelectedZone } = useZones()
-  const { showContextMenu } = useAppStore()
+  const { selectedZone, selectedZoneLoading, refreshSelectedZone } = useZones()
+  const { showContextMenu, showDeletePlanDialog, showDeleteMemoryDialog, showDeleteEdgeDialog } = useAppStore()
   const db = useDatabase()
+  const toast = useToast()
   
   const [selectedNodeIds, setSelectedNodeIds] = React.useState<Set<string>>(new Set())
   const [selectedEdgeIds, setSelectedEdgeIds] = React.useState<Set<string>>(new Set())
@@ -214,8 +216,9 @@ export function ZoneWindow() {
       })
     } catch (err) {
       console.error('Failed to persist plan size:', err)
+      toast.error('Failed to save plan size')
     }
-  }, [setNodes, db.plans])
+  }, [setNodes, db.plans, toast])
 
   const handlePlanDescriptionChange = useCallback(async (planId: string, description: string) => {
     setNodes((nds) =>
@@ -242,8 +245,9 @@ export function ZoneWindow() {
       await db.plans.update(planId, { description })
     } catch (err) {
       console.error('Failed to persist plan description:', err)
+      toast.error('Failed to save plan description')
     }
-  }, [setNodes, db.plans])
+  }, [setNodes, db.plans, toast])
 
   const handlePlanContextMenu = useCallback((e: React.MouseEvent, planId: string) => {
     e.preventDefault()
@@ -275,8 +279,9 @@ export function ZoneWindow() {
       await db.tasks.update(taskId, { content })
     } catch (err) {
       console.error('Failed to persist task content:', err)
+      toast.error('Failed to save task content')
     }
-  }, [setNodes, db.tasks])
+  }, [setNodes, db.tasks, toast])
 
   const handleTaskSizeChange = useCallback(async (taskId: string, width: number, height: number) => {
     setNodes((nds) =>
@@ -302,8 +307,9 @@ export function ZoneWindow() {
       })
     } catch (err) {
       console.error('Failed to persist task size:', err)
+      toast.error('Failed to save task size')
     }
-  }, [setNodes, db.tasks])
+  }, [setNodes, db.tasks, toast])
 
   const handleTaskContextMenu = useCallback((e: React.MouseEvent, taskId: string) => {
     e.preventDefault()
@@ -335,8 +341,9 @@ export function ZoneWindow() {
       await db.memories.update(memoryId, { content })
     } catch (err) {
       console.error('Failed to persist memory content:', err)
+      toast.error('Failed to save memory content')
     }
-  }, [setNodes, db.memories])
+  }, [setNodes, db.memories, toast])
 
   const handleMemoryContextMenu = useCallback((e: React.MouseEvent, memoryId: string) => {
     e.preventDefault()
@@ -367,8 +374,9 @@ export function ZoneWindow() {
       })
     } catch (err) {
       console.error('Failed to persist memory size:', err)
+      toast.error('Failed to save memory size')
     }
-  }, [setNodes, db.memories])
+  }, [setNodes, db.memories, toast])
 
   // --- Attach callbacks to nodes ---
   // We need to update callbacks when they change (they reference setNodes)
@@ -502,6 +510,7 @@ export function ZoneWindow() {
         }
       } catch (err) {
         console.error('Failed to persist position:', err)
+        toast.error('Failed to save position')
       }
       
       // Handle task re-parenting
@@ -534,6 +543,7 @@ export function ZoneWindow() {
         const newRelativeX = absoluteX - newParent.position.x
         const newRelativeY = absoluteY - newParent.position.y
         
+        // Update UI state immediately
         setNodes((currentNodes) =>
           currentNodes.map((n) => {
             if (n.id === taskNode.id) {
@@ -551,11 +561,35 @@ export function ZoneWindow() {
           })
         )
         
-        // TODO: Persist re-parenting to database (move task to new plan)
-        // This would require a db.tasks.move(taskId, newPlanId) API
+        // Persist re-parenting to database
+        try {
+          await db.tasks.move(taskNode.id, newParent.id, {
+            metadata: { ui_x: newRelativeX, ui_y: newRelativeY }
+          })
+        } catch (err) {
+          console.error('Failed to persist task re-parenting:', err)
+          toast.error('Failed to move task to new plan')
+          // Revert UI on failure
+          setNodes((currentNodes) =>
+            currentNodes.map((n) => {
+              if (n.id === taskNode.id) {
+                return {
+                  ...n,
+                  parentId: currentParentId,
+                  position: taskNode.position,
+                  data: {
+                    ...n.data,
+                    planId: currentParentId
+                  }
+                } as ZoneTaskNodeType
+              }
+              return n
+            })
+          )
+        }
       }
     },
-    [getPlansAtPosition, setNodes, db.plans, db.tasks, db.memories]
+    [getPlansAtPosition, setNodes, db.plans, db.tasks, db.memories, toast]
   )
 
   // --- Handle node changes ---
@@ -599,6 +633,10 @@ export function ZoneWindow() {
           await db.dependencies.create(connection.target, connection.source)
         } catch (err) {
           console.error('Failed to create dependency:', err)
+          const errorMessage = err instanceof Error && err.message.includes('circular')
+            ? 'Cannot create circular dependency'
+            : 'Failed to create dependency'
+          toast.error(errorMessage)
           // Remove edge on failure
           setEdges((eds) => eds.filter(e => 
             !(e.source === connection.source && e.target === connection.target)
@@ -606,7 +644,7 @@ export function ZoneWindow() {
         }
       }
     },
-    [setEdges, db.dependencies]
+    [setEdges, db.dependencies, toast]
   )
 
   // --- Handle canvas context menu ---
@@ -645,6 +683,99 @@ export function ZoneWindow() {
     e.preventDefault()
     showContextMenu(e.clientX, e.clientY, 'edge', { edgeId: edge.id })
   }, [showContextMenu])
+
+  // --- Handle Delete key press ---
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only handle Delete key when we have a selection
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return
+      
+      // Don't handle if we're inside an input or textarea
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return
+      }
+      
+      // Check if we have selected edges
+      if (selectedEdgeIds.size > 0) {
+        e.preventDefault()
+        const edgeInfos = Array.from(selectedEdgeIds).map(edgeId => {
+          const edge = edges.find(e => e.id === edgeId)
+          if (!edge) return null
+          return {
+            id: edgeId,
+            sourceTaskId: edge.source,
+            targetTaskId: edge.target,
+            relationshipType: (edge.data?.relationshipType || 'DEPENDS_ON') as 'DEPENDS_ON' | 'BLOCKS'
+          }
+        }).filter((e): e is NonNullable<typeof e> => e !== null)
+        
+        if (edgeInfos.length > 0) {
+          showDeleteEdgeDialog(edgeInfos)
+        }
+        return
+      }
+      
+      // Check if we have selected nodes
+      if (selectedNodeIds.size > 0) {
+        e.preventDefault()
+        
+        // Get the selected node types
+        const selectedNodes = nodes.filter(n => selectedNodeIds.has(n.id))
+        
+        // For now, handle single selection only for plans and memories
+        // Tasks are handled differently (they have their own dialog via useTasks)
+        if (selectedNodes.length === 1) {
+          const node = selectedNodes[0]
+          
+          if (node.type === 'plan') {
+            const planData = node.data as PlanNodeData
+            showDeletePlanDialog(node.id, planData.plan.name, planData.plan.tasks.length)
+          } else if (node.type === 'memory') {
+            const memoryData = node.data as MemoryNodeData
+            showDeleteMemoryDialog(node.id, memoryData.memory.type)
+          } else if (node.type === 'zoneTask') {
+            // Task deletion is handled by the existing showDeleteDialog in appStore
+            // We need to import and use it
+            const { showDeleteDialog } = useAppStore.getState()
+            showDeleteDialog([node.id])
+          }
+        } else if (selectedNodes.length > 1) {
+          // Multi-selection: check if all are tasks
+          const allTasks = selectedNodes.every(n => n.type === 'zoneTask')
+          if (allTasks) {
+            const taskIds = selectedNodes.map(n => n.id)
+            const { showDeleteDialog } = useAppStore.getState()
+            showDeleteDialog(taskIds)
+          } else {
+            // Mixed selection - show toast that we can only delete items of same type
+            toast.warning('Please select items of the same type to delete multiple at once')
+          }
+        }
+      }
+    }
+    
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [selectedNodeIds, selectedEdgeIds, nodes, edges, showDeletePlanDialog, showDeleteMemoryDialog, showDeleteEdgeDialog, toast])
+
+  // Loading state when zone is being fetched
+  if (selectedZoneLoading) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-surface-50">
+        <div className="text-center text-surface-500">
+          <div className="animate-pulse flex flex-col items-center gap-4">
+            <div className="w-16 h-16 bg-surface-200 rounded-lg"></div>
+            <div className="space-y-2">
+              <div className="h-4 bg-surface-200 rounded w-32"></div>
+              <div className="h-3 bg-surface-200 rounded w-24 mx-auto"></div>
+            </div>
+          </div>
+          <div className="text-sm mt-4">Loading zone contents...</div>
+        </div>
+      </div>
+    )
+  }
 
   // Empty state when no zone is selected
   if (!selectedZone) {

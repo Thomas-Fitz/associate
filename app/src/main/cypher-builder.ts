@@ -326,6 +326,42 @@ export const TaskQueries = {
       SET r.${RelationProperty.Position} = ${position}
       RETURN t
     `
+  },
+
+  /**
+   * Move a task to a different plan.
+   * Removes the old PART_OF relationship and creates a new one.
+   */
+  moveToPlan(taskId: string, newPlanId: string, position: number): string {
+    return `
+      MATCH (t:${NodeLabel.Task} {id: '${escapeCypherString(taskId)}'})-[r:${RelationType.PartOf}]->(oldP:${NodeLabel.Plan})
+      DELETE r
+      WITH t
+      MATCH (newP:${NodeLabel.Plan} {id: '${escapeCypherString(newPlanId)}'})
+      CREATE (t)-[:${RelationType.PartOf} {${RelationProperty.Position}: ${position}}]->(newP)
+      RETURN t
+    `
+  },
+
+  /**
+   * Update a task's properties.
+   */
+  update(taskId: string, sets: string[]): string {
+    return `
+      MATCH (t:${NodeLabel.Task} {id: '${escapeCypherString(taskId)}'})
+      SET ${sets.join(', ')}
+      RETURN t
+    `
+  },
+
+  /**
+   * Delete a task and all its relationships.
+   */
+  delete(taskId: string): string {
+    return `
+      MATCH (t:${NodeLabel.Task} {id: '${escapeCypherString(taskId)}'})
+      DETACH DELETE t
+    `
   }
 }
 

@@ -1,7 +1,7 @@
 import React from 'react'
 import { ContextMenu, ContextMenuItem, ContextMenuSeparator } from './ContextMenu'
-import { useDatabase } from '../../hooks/useDatabase'
 import { useZones } from '../../hooks/useZones'
+import { useAppStore } from '../../stores/appStore'
 
 interface MemoryContextMenuProps {
   x: number
@@ -11,8 +11,8 @@ interface MemoryContextMenuProps {
 }
 
 export function MemoryContextMenu({ x, y, memoryId, onClose }: MemoryContextMenuProps) {
-  const db = useDatabase()
-  const { selectedZone, refreshSelectedZone } = useZones()
+  const { selectedZone } = useZones()
+  const { showDeleteMemoryDialog } = useAppStore()
   
   const memory = selectedZone?.memories.find(m => m.id === memoryId)
   
@@ -23,24 +23,13 @@ export function MemoryContextMenu({ x, y, memoryId, onClose }: MemoryContextMenu
     onClose()
   }
   
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!memory) {
       onClose()
       return
     }
     
-    const confirmDelete = window.confirm(
-      `Are you sure you want to delete this ${memory.type.toLowerCase()}?`
-    )
-    
-    if (confirmDelete) {
-      try {
-        await db.memories.delete(memoryId)
-        refreshSelectedZone()
-      } catch (err) {
-        console.error('Failed to delete memory:', err)
-      }
-    }
+    showDeleteMemoryDialog(memoryId, memory.type)
     onClose()
   }
   

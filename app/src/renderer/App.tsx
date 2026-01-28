@@ -9,7 +9,8 @@ import {
   PlanContextMenu,
   MemoryContextMenu 
 } from './components/ContextMenu'
-import { DeleteTaskDialog, DeleteEdgeDialog, DeleteZoneDialog } from './components/Dialogs'
+import { DeleteTaskDialog, DeleteEdgeDialog, DeleteZoneDialog, DeletePlanDialog, DeleteMemoryDialog } from './components/Dialogs'
+import { ToastContainer } from './components/Toast'
 import { useAppStore } from './stores/appStore'
 
 export default function App() {
@@ -83,6 +84,11 @@ export default function App() {
       <DeleteTaskDialog />
       <DeleteEdgeDialog />
       <DeleteZoneDialog />
+      <DeletePlanDialog />
+      <DeleteMemoryDialog />
+      
+      {/* Toast Notifications */}
+      <ToastContainer />
     </div>
   )
 }

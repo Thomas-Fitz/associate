@@ -8,6 +8,7 @@ interface AppState {
   selectedZone: ZoneWithContents | null
   zonesLoading: boolean
   zonesError: string | null
+  selectedZoneLoading: boolean
   
   // Plans (kept for backward compatibility)
   plans: Plan[]
@@ -56,6 +57,31 @@ interface AppState {
     zoneId: string
     zoneName: string
   } | null
+
+  deletePlanDialog: {
+    visible: boolean
+    planId: string
+    planName: string
+    taskCount: number
+  } | null
+
+  deleteMemoryDialog: {
+    visible: boolean
+    memoryId: string
+    memoryType: string
+  } | null
+
+  // Toast notifications
+  toasts: Array<{
+    id: string
+    type: 'success' | 'error' | 'info' | 'warning'
+    message: string
+    duration?: number
+  }>
+
+  // Toast Actions
+  addToast: (toast: { type: 'success' | 'error' | 'info' | 'warning'; message: string; duration?: number }) => string
+  removeToast: (id: string) => void
   
   // Zone Actions
   setZones: (zones: Zone[]) => void
@@ -63,6 +89,7 @@ interface AppState {
   setSelectedZone: (zone: ZoneWithContents | null) => void
   setZonesLoading: (loading: boolean) => void
   setZonesError: (error: string | null) => void
+  setSelectedZoneLoading: (loading: boolean) => void
   
   // Plan Actions
   setPlans: (plans: Plan[]) => void
@@ -96,6 +123,12 @@ interface AppState {
 
   showDeleteZoneDialog: (zoneId: string, zoneName: string) => void
   hideDeleteZoneDialog: () => void
+
+  showDeletePlanDialog: (planId: string, planName: string, taskCount: number) => void
+  hideDeletePlanDialog: () => void
+
+  showDeleteMemoryDialog: (memoryId: string, memoryType: string) => void
+  hideDeleteMemoryDialog: () => void
   
   // Task updates
   updateTask: (taskId: string, updates: Partial<TaskInPlan>) => void
@@ -111,6 +144,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedZone: null,
   zonesLoading: false,
   zonesError: null,
+  selectedZoneLoading: false,
   
   plans: [],
   selectedPlanId: null,
@@ -129,6 +163,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   deleteDialog: null,
   deleteEdgeDialog: null,
   deleteZoneDialog: null,
+  deletePlanDialog: null,
+  deleteMemoryDialog: null,
+  toasts: [],
   
   // Zone Actions
   setZones: (zones) => set({ zones }),
@@ -136,6 +173,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setSelectedZone: (zone) => set({ selectedZone: zone }),
   setZonesLoading: (loading) => set({ zonesLoading: loading }),
   setZonesError: (error) => set({ zonesError: error }),
+  setSelectedZoneLoading: (loading) => set({ selectedZoneLoading: loading }),
   
   // Plan Actions
   setPlans: (plans) => set({ plans }),
@@ -220,6 +258,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   }),
 
   hideDeleteZoneDialog: () => set({ deleteZoneDialog: null }),
+
+  showDeletePlanDialog: (planId, planName, taskCount) => set({
+    deletePlanDialog: { visible: true, planId, planName, taskCount }
+  }),
+
+  hideDeletePlanDialog: () => set({ deletePlanDialog: null }),
+
+  showDeleteMemoryDialog: (memoryId, memoryType) => set({
+    deleteMemoryDialog: { visible: true, memoryId, memoryType }
+  }),
+
+  hideDeleteMemoryDialog: () => set({ deleteMemoryDialog: null }),
   
   updateTask: (taskId, updates) => {
     const { selectedPlan } = get()
@@ -277,5 +327,27 @@ export const useAppStore = create<AppState>((set, get) => ({
       },
       selectedTaskIds: newSelection
     })
-  }
+  },
+
+  // Toast Actions
+  addToast: (toast) => {
+    const id = crypto.randomUUID()
+    set((state) => ({
+      toasts: [...state.toasts, { ...toast, id }]
+    }))
+    
+    // Auto-remove after duration (default 5 seconds)
+    const duration = toast.duration ?? 5000
+    if (duration > 0) {
+      setTimeout(() => {
+        get().removeToast(id)
+      }, duration)
+    }
+    
+    return id
+  },
+  
+  removeToast: (id) => set((state) => ({
+    toasts: state.toasts.filter(t => t.id !== id)
+  }))
 }))

@@ -1,6 +1,7 @@
 import type { ElectronAPI } from '../../preload'
 import type { 
   Plan, 
+  Task,
   TaskInPlan, 
   PlanWithTasks, 
   ListPlansOptions, 
@@ -497,6 +498,54 @@ function createMockAPI(): ElectronAPI {
             task.position = (index + 1) * 1000
           }
         })
+      },
+      
+      move: async (taskId: string, newPlanId: string, options?: { position?: number; metadata?: Record<string, unknown> }): Promise<Task> => {
+        // Find and remove from current plan
+        let movedTask: TaskInPlan | undefined
+        for (const planId in mockState.tasks) {
+          const taskIndex = mockState.tasks[planId].findIndex(t => t.id === taskId)
+          if (taskIndex !== -1) {
+            movedTask = mockState.tasks[planId].splice(taskIndex, 1)[0]
+            
+            // Update task count for old plan
+            const oldPlan = mockState.plans.find(p => p.id === planId)
+            if (oldPlan && oldPlan.taskCount) {
+              oldPlan.taskCount--
+            }
+            break
+          }
+        }
+        
+        if (!movedTask) {
+          throw new Error(`Task not found: ${taskId}`)
+        }
+        
+        // Update metadata if provided
+        if (options?.metadata) {
+          movedTask.metadata = { ...movedTask.metadata, ...options.metadata }
+        }
+        
+        // Set position if provided
+        if (options?.position !== undefined) {
+          movedTask.position = options.position
+        }
+        
+        // Add to new plan
+        if (!mockState.tasks[newPlanId]) {
+          mockState.tasks[newPlanId] = []
+        }
+        mockState.tasks[newPlanId].push(movedTask)
+        
+        // Update task count for new plan
+        const newPlan = mockState.plans.find(p => p.id === newPlanId)
+        if (newPlan) {
+          if (!newPlan.taskCount) newPlan.taskCount = 0
+          newPlan.taskCount++
+        }
+        
+        movedTask.updatedAt = new Date().toISOString()
+        return movedTask as Task
       }
     },
     

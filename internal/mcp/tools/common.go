@@ -15,15 +15,17 @@ type Handler struct {
 	Repo     *graph.Repository
 	PlanRepo *graph.PlanRepository
 	TaskRepo *graph.TaskRepository
+	ZoneRepo *graph.ZoneRepository
 	Logger   *slog.Logger
 }
 
 // NewHandler creates a new Handler with the given dependencies.
-func NewHandler(repo *graph.Repository, planRepo *graph.PlanRepository, taskRepo *graph.TaskRepository, logger *slog.Logger) *Handler {
+func NewHandler(repo *graph.Repository, planRepo *graph.PlanRepository, taskRepo *graph.TaskRepository, zoneRepo *graph.ZoneRepository, logger *slog.Logger) *Handler {
 	return &Handler{
 		Repo:     repo,
 		PlanRepo: planRepo,
 		TaskRepo: taskRepo,
+		ZoneRepo: zoneRepo,
 		Logger:   logger,
 	}
 }

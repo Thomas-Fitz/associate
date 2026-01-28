@@ -13,15 +13,127 @@ import (
 
 // PlanRepository provides CRUD operations for plans.
 type PlanRepository struct {
-	client *Client
+	client   *Client
+	zoneRepo *ZoneRepository
 }
 
 // NewPlanRepository creates a new plan repository
 func NewPlanRepository(client *Client) *PlanRepository {
-	return &PlanRepository{client: client}
+	return &PlanRepository{
+		client:   client,
+		zoneRepo: NewZoneRepository(client),
+	}
 }
 
-// Add creates a new plan and optional relationships
+// NewPlanRepositoryWithZoneRepo creates a new plan repository with an explicit zone repository.
+// This is useful when you want to share the same zone repository instance.
+func NewPlanRepositoryWithZoneRepo(client *Client, zoneRepo *ZoneRepository) *PlanRepository {
+	return &PlanRepository{
+		client:   client,
+		zoneRepo: zoneRepo,
+	}
+}
+
+// AddWithZone creates a new plan and links it to a zone.
+// If zoneID is empty, a new zone will be created with the plan's name.
+// Returns the created plan and the zone ID it was linked to.
+func (r *PlanRepository) AddWithZone(ctx context.Context, plan models.Plan, zoneID string, relationships []models.Relationship) (*models.Plan, string, error) {
+	tx, err := r.client.BeginTx(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	defer tx.Rollback()
+
+	// If no zone specified, create one with the plan's name
+	if zoneID == "" {
+		newZone, err := r.zoneRepo.Add(ctx, models.Zone{Name: plan.Name})
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to auto-create zone: %w", err)
+		}
+		zoneID = newZone.ID
+	} else {
+		// Verify zone exists
+		exists, err := r.zoneRepo.Exists(ctx, zoneID)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to verify zone: %w", err)
+		}
+		if !exists {
+			return nil, "", fmt.Errorf("zone not found: %s", zoneID)
+		}
+	}
+
+	if plan.ID == "" {
+		plan.ID = uuid.New().String()
+	}
+	now := time.Now().UTC()
+	plan.CreatedAt = now
+	plan.UpdatedAt = now
+
+	if plan.Status == "" {
+		plan.Status = models.PlanStatusActive
+	}
+
+	metadataJSON := metadataToJSON(plan.Metadata)
+	tagsList := tagsToCypherList(plan.Tags)
+
+	// Create the plan
+	cypher := fmt.Sprintf(
+		`CREATE (p:Plan {
+			id: '%s',
+			node_type: 'Plan',
+			name: '%s',
+			description: '%s',
+			status: '%s',
+			metadata: '%s',
+			tags: %s,
+			created_at: '%s',
+			updated_at: '%s'
+		}) RETURN p`,
+		EscapeCypherString(plan.ID),
+		EscapeCypherString(plan.Name),
+		EscapeCypherString(plan.Description),
+		EscapeCypherString(string(plan.Status)),
+		EscapeCypherString(metadataJSON),
+		tagsList,
+		plan.CreatedAt.Format(time.RFC3339),
+		plan.UpdatedAt.Format(time.RFC3339),
+	)
+
+	rows, err := r.client.execCypher(ctx, tx, cypher, "p agtype")
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to create plan: %w", err)
+	}
+	rows.Close()
+
+	// Create BELONGS_TO relationship to zone
+	belongsCypher := fmt.Sprintf(
+		`MATCH (p:Plan {id: '%s'}), (z:Zone {id: '%s'})
+		 CREATE (p)-[:BELONGS_TO]->(z)
+		 RETURN p`,
+		EscapeCypherString(plan.ID),
+		EscapeCypherString(zoneID),
+	)
+	belongsRows, err := r.client.execCypher(ctx, tx, belongsCypher, "p agtype")
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to link plan to zone: %w", err)
+	}
+	belongsRows.Close()
+
+	// Create other relationships
+	for _, rel := range relationships {
+		if err := r.createRelationshipFromPlan(ctx, tx, plan.ID, rel.ToID, rel.Type); err != nil {
+			fmt.Printf("warning: failed to create relationship: %v\n", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, "", fmt.Errorf("failed to commit: %w", err)
+	}
+
+	return &plan, zoneID, nil
+}
+
+// Add creates a new plan and optional relationships (legacy method without zone support)
 func (r *PlanRepository) Add(ctx context.Context, plan models.Plan, relationships []models.Relationship) (*models.Plan, error) {
 	tx, err := r.client.BeginTx(ctx)
 	if err != nil {
@@ -441,6 +553,111 @@ func (r *PlanRepository) List(ctx context.Context, status string, tags []string,
 	}
 
 	return plans, nil
+}
+
+// GetZoneID returns the zone ID that a plan belongs to, or empty string if not linked.
+func (r *PlanRepository) GetZoneID(ctx context.Context, planID string) (string, error) {
+	cypher := fmt.Sprintf(
+		`MATCH (p:Plan {id: '%s'})-[:BELONGS_TO]->(z:Zone)
+		 RETURN z.id`,
+		EscapeCypherString(planID))
+
+	rows, err := r.client.execCypher(ctx, nil, cypher, "zone_id agtype")
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		return "", nil // Not linked to any zone
+	}
+
+	var zoneID string
+	if err := rows.Scan(&zoneID); err != nil {
+		return "", err
+	}
+	return strings.Trim(zoneID, "\""), nil
+}
+
+// MoveToZone moves a plan from its current zone to a new zone.
+// All tasks belonging to the plan remain with it.
+func (r *PlanRepository) MoveToZone(ctx context.Context, planID, newZoneID string) error {
+	tx, err := r.client.BeginTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Verify plan exists
+	planExists := false
+	planCheckCypher := fmt.Sprintf(`MATCH (p:Plan {id: '%s'}) RETURN count(p) > 0`, EscapeCypherString(planID))
+	planRows, err := r.client.execCypher(ctx, tx, planCheckCypher, "exists agtype")
+	if err != nil {
+		return fmt.Errorf("failed to check plan: %w", err)
+	}
+	if planRows.Next() {
+		var existsStr string
+		if err := planRows.Scan(&existsStr); err == nil {
+			planExists = strings.Trim(existsStr, "\"") == "true"
+		}
+	}
+	planRows.Close()
+
+	if !planExists {
+		return fmt.Errorf("plan not found: %s", planID)
+	}
+
+	// Verify new zone exists
+	exists, err := r.zoneRepo.Exists(ctx, newZoneID)
+	if err != nil {
+		return fmt.Errorf("failed to verify zone: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("zone not found: %s", newZoneID)
+	}
+
+	// Delete existing BELONGS_TO relationship
+	deleteBelongsCypher := fmt.Sprintf(
+		`MATCH (p:Plan {id: '%s'})-[r:BELONGS_TO]->(z:Zone)
+		 DELETE r
+		 RETURN true`,
+		EscapeCypherString(planID))
+
+	deleteRows, err := r.client.execCypher(ctx, tx, deleteBelongsCypher, "result agtype")
+	if err != nil {
+		return fmt.Errorf("failed to remove old zone link: %w", err)
+	}
+	deleteRows.Close()
+
+	// Create new BELONGS_TO relationship
+	createBelongsCypher := fmt.Sprintf(
+		`MATCH (p:Plan {id: '%s'}), (z:Zone {id: '%s'})
+		 CREATE (p)-[:BELONGS_TO]->(z)
+		 RETURN p`,
+		EscapeCypherString(planID),
+		EscapeCypherString(newZoneID))
+
+	createRows, err := r.client.execCypher(ctx, tx, createBelongsCypher, "p agtype")
+	if err != nil {
+		return fmt.Errorf("failed to link to new zone: %w", err)
+	}
+	createRows.Close()
+
+	// Update plan's updated_at timestamp
+	updateCypher := fmt.Sprintf(
+		`MATCH (p:Plan {id: '%s'})
+		 SET p.updated_at = '%s'
+		 RETURN p`,
+		EscapeCypherString(planID),
+		time.Now().UTC().Format(time.RFC3339))
+
+	updateRows, err := r.client.execCypher(ctx, tx, updateCypher, "p agtype")
+	if err != nil {
+		return fmt.Errorf("failed to update plan timestamp: %w", err)
+	}
+	updateRows.Close()
+
+	return tx.Commit()
 }
 
 // createRelationshipFromPlan creates a relationship from a Plan to another node

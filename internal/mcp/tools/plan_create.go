@@ -17,6 +17,7 @@ type CreatePlanInput struct {
 	Tags        []string       `json:"tags,omitempty" jsonschema:"Tags for categorizing the plan"`
 	RelatedTo   []string       `json:"related_to,omitempty" jsonschema:"IDs of existing nodes to connect using RELATES_TO"`
 	References  []string       `json:"references,omitempty" jsonschema:"IDs of existing nodes this references using REFERENCES"`
+	ZoneID      string         `json:"zone_id,omitempty" jsonschema:"ID of the zone to add this plan to. If empty, a new zone will be auto-created with the plan's name."`
 }
 
 // CreatePlanOutput defines the output for the create_plan tool.
@@ -27,6 +28,7 @@ type CreatePlanOutput struct {
 	Status      string            `json:"status"`
 	Metadata    map[string]string `json:"metadata,omitempty"`
 	Tags        []string          `json:"tags,omitempty"`
+	ZoneID      string            `json:"zone_id"`
 	CreatedAt   string            `json:"created_at"`
 }
 
@@ -34,13 +36,13 @@ type CreatePlanOutput struct {
 func CreatePlanTool() *mcp.Tool {
 	return &mcp.Tool{
 		Name:        "create_plan",
-		Description: "Create a new plan to organize tasks. Plans have a name, description, status (draft/active/completed/archived), metadata, and tags. Returns the created plan with its ID.",
+		Description: "Create a new plan to organize tasks. Plans have a name, description, status (draft/active/completed/archived), metadata, and tags. Optionally specify a zone_id to add the plan to an existing zone; if omitted, a new zone will be auto-created. Returns the created plan with its ID and zone_id.",
 	}
 }
 
 // HandleCreatePlan handles the create_plan tool call.
 func (h *Handler) HandleCreatePlan(ctx context.Context, req *mcp.CallToolRequest, input CreatePlanInput) (*mcp.CallToolResult, CreatePlanOutput, error) {
-	h.Logger.Info("create_plan", "name", input.Name, "status", input.Status)
+	h.Logger.Info("create_plan", "name", input.Name, "status", input.Status, "zone_id", input.ZoneID)
 
 	// Validate status if provided
 	status := models.PlanStatusActive
@@ -68,13 +70,14 @@ func (h *Handler) HandleCreatePlan(ctx context.Context, req *mcp.CallToolRequest
 		nil, nil, nil, nil,
 	)
 
-	created, err := h.PlanRepo.Add(ctx, plan, rels)
+	// Use AddWithZone to create the plan linked to a zone
+	created, zoneID, err := h.PlanRepo.AddWithZone(ctx, plan, input.ZoneID, rels)
 	if err != nil {
 		h.Logger.Error("create_plan failed", "name", input.Name, "error", err)
 		return nil, CreatePlanOutput{}, fmt.Errorf("failed to create plan: %w", err)
 	}
 
-	h.Logger.Info("create_plan complete", "id", created.ID, "name", created.Name)
+	h.Logger.Info("create_plan complete", "id", created.ID, "name", created.Name, "zone_id", zoneID)
 	return nil, CreatePlanOutput{
 		ID:          created.ID,
 		Name:        created.Name,
@@ -82,6 +85,7 @@ func (h *Handler) HandleCreatePlan(ctx context.Context, req *mcp.CallToolRequest
 		Status:      string(created.Status),
 		Metadata:    created.Metadata,
 		Tags:        created.Tags,
+		ZoneID:      zoneID,
 		CreatedAt:   created.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}, nil
 }

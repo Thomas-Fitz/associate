@@ -173,7 +173,7 @@ function createMockAPI(): ElectronAPI {
       list: async (options?: ListPlansOptions): Promise<Plan[]> => {
         let result = [...mockState.plans]
         
-        if (options?.status && options.status !== 'all') {
+        if (options?.status && (options.status as string) !== 'all') {
           result = result.filter(p => p.status === options.status)
         }
         

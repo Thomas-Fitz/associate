@@ -66,7 +66,8 @@ func main() {
 	repo := graph.NewRepository(client)
 	planRepo := graph.NewPlanRepository(client)
 	taskRepo := graph.NewTaskRepository(client)
-	server := mcpserver.NewServer(repo, planRepo, taskRepo, logger)
+	zoneRepo := graph.NewZoneRepository(client)
+	server := mcpserver.NewServer(repo, planRepo, taskRepo, zoneRepo, logger)
 
 	if *httpMode {
 		// Run as HTTP server

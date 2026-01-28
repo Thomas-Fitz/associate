@@ -205,7 +205,7 @@ func (c *Client) initSchema(ctx context.Context) error {
 	}
 
 	// Ensure label tables exist by creating and deleting a dummy vertex for each type
-	seedLabels := []string{"Memory", "Plan", "Task"}
+	seedLabels := []string{"Memory", "Plan", "Task", "Zone"}
 	for _, label := range seedLabels {
 		// Create a seed node
 		createQuery := fmt.Sprintf(

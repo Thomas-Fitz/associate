@@ -19,6 +19,7 @@ var ValidRelationTypes = map[models.RelationType]bool{
 	models.RelBlocks:     true,
 	models.RelFollows:    true,
 	models.RelImplements: true,
+	models.RelBelongsTo:  true,
 }
 
 // ValidateRelationType checks that a relationship type is one of the known constants.
@@ -43,9 +44,9 @@ func EscapeCypherString(s string) string {
 
 // NodeLabelPredicate returns an AGE-compatible label predicate for use in WHERE clauses.
 // Apache AGE doesn't support the standard Cypher "node:Label" syntax in WHERE clauses.
-// Instead, we use the label() function: label(node) IN ['Memory', 'Plan', 'Task']
+// Instead, we use the label() function: label(node) IN ['Memory', 'Plan', 'Task', 'Zone']
 func NodeLabelPredicate(nodeVar string) string {
-	return fmt.Sprintf("label(%s) IN ['Memory', 'Plan', 'Task']", nodeVar)
+	return fmt.Sprintf("label(%s) IN ['Memory', 'Plan', 'Task', 'Zone']", nodeVar)
 }
 
 // tagsToCypherList converts a Go string slice to a Cypher list literal.
@@ -223,6 +224,42 @@ func propsToTask(props map[string]interface{}) models.Task {
 	}
 
 	return task
+}
+
+// propsToZone converts a properties map to a Zone struct.
+func propsToZone(props map[string]interface{}) models.Zone {
+	zone := models.Zone{
+		ID:          getString(props, "id"),
+		Name:        getString(props, "name"),
+		Description: getString(props, "description"),
+	}
+
+	if metaStr := getString(props, "metadata"); metaStr != "" {
+		zone.Metadata = jsonToMetadata(metaStr)
+	}
+
+	if tagsRaw, ok := props["tags"]; ok {
+		if tagsArr, ok := tagsRaw.([]interface{}); ok {
+			for _, t := range tagsArr {
+				if s, ok := t.(string); ok {
+					zone.Tags = append(zone.Tags, s)
+				}
+			}
+		}
+	}
+
+	if createdStr := getString(props, "created_at"); createdStr != "" {
+		if t, err := time.Parse(time.RFC3339, createdStr); err == nil {
+			zone.CreatedAt = t
+		}
+	}
+	if updatedStr := getString(props, "updated_at"); updatedStr != "" {
+		if t, err := time.Parse(time.RFC3339, updatedStr); err == nil {
+			zone.UpdatedAt = t
+		}
+	}
+
+	return zone
 }
 
 // toFloat64 converts various numeric types to float64.

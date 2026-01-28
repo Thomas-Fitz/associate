@@ -22,6 +22,7 @@ const (
 	RelBlocks     RelationType = "BLOCKS"     // Task A blocks Task B (A must complete first)
 	RelFollows    RelationType = "FOLLOWS"    // Sequence ordering (A comes after B)
 	RelImplements RelationType = "IMPLEMENTS" // Code implements a decision/task
+	RelBelongsTo  RelationType = "BELONGS_TO" // Zone membership (Plan/Memory belongs to Zone)
 )
 
 // Memory represents a memory node in the graph database.

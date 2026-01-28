@@ -21,12 +21,13 @@ type Server struct {
 	repo      *graph.Repository
 	planRepo  *graph.PlanRepository
 	taskRepo  *graph.TaskRepository
+	zoneRepo  *graph.ZoneRepository
 	logger    *slog.Logger
 	handler   *tools.Handler
 }
 
 // NewServer creates a new Associate MCP server
-func NewServer(repo *graph.Repository, planRepo *graph.PlanRepository, taskRepo *graph.TaskRepository, logger *slog.Logger) *Server {
+func NewServer(repo *graph.Repository, planRepo *graph.PlanRepository, taskRepo *graph.TaskRepository, zoneRepo *graph.ZoneRepository, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -44,8 +45,9 @@ func NewServer(repo *graph.Repository, planRepo *graph.PlanRepository, taskRepo 
 		repo:      repo,
 		planRepo:  planRepo,
 		taskRepo:  taskRepo,
+		zoneRepo:  zoneRepo,
 		logger:    logger,
-		handler:   tools.NewHandler(repo, planRepo, taskRepo, logger),
+		handler:   tools.NewHandler(repo, planRepo, taskRepo, zoneRepo, logger),
 	}
 
 	s.registerTools()
@@ -76,6 +78,13 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer, tools.DeleteTaskTool(), s.handler.HandleDeleteTask)
 	mcp.AddTool(s.mcpServer, tools.ListTasksTool(), s.handler.HandleListTasks)
 	mcp.AddTool(s.mcpServer, tools.ReorderTasksTool(), s.handler.HandleReorderTasks)
+
+	// Zone tools
+	mcp.AddTool(s.mcpServer, tools.CreateZoneTool(), s.handler.HandleCreateZone)
+	mcp.AddTool(s.mcpServer, tools.GetZoneTool(), s.handler.HandleGetZone)
+	mcp.AddTool(s.mcpServer, tools.UpdateZoneTool(), s.handler.HandleUpdateZone)
+	mcp.AddTool(s.mcpServer, tools.DeleteZoneTool(), s.handler.HandleDeleteZone)
+	mcp.AddTool(s.mcpServer, tools.ListZonesTool(), s.handler.HandleListZones)
 }
 
 // HTTPHandler returns an http.Handler for the MCP server

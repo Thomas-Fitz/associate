@@ -1,13 +1,13 @@
 import { useCallback } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useDatabase } from './useDatabase'
-import type { MemoryInZone, PlanInZone, TaskInPlan } from '../types'
+import type { MemoryInZone, PlanInZone, TaskInPlan, TerminalInZone } from '../types'
 
 /**
  * Node types that can be created on the zone canvas.
  * Excludes Zone since zones are the container - you can't add a zone to a zone.
  */
-export type CanvasNodeType = 'plan' | 'task' | 'memory'
+export type CanvasNodeType = 'plan' | 'task' | 'memory' | 'terminal'
 
 /**
  * Memory subtypes that can be created
@@ -38,7 +38,12 @@ interface CreateMemoryResult {
   node: MemoryInZone
 }
 
-export type CreateNodeResult = CreatePlanResult | CreateTaskResult | CreateMemoryResult
+interface CreateTerminalResult {
+  type: 'terminal'
+  node: TerminalInZone
+}
+
+export type CreateNodeResult = CreatePlanResult | CreateTaskResult | CreateMemoryResult | CreateTerminalResult
 
 /**
  * Hook for creating nodes on the zone canvas.
@@ -180,6 +185,50 @@ export function useCanvasNodeCreation() {
   }, [db.memories, selectedZone, setSelectedZone])
 
   /**
+   * Create a terminal at the specified canvas position
+   */
+  const createTerminal = useCallback(async (options: CreateNodeOptions): Promise<TerminalInZone | null> => {
+    if (!selectedZone) {
+      console.error('No zone selected')
+      return null
+    }
+
+    const metadata = {
+      ui_x: options.position.x,
+      ui_y: options.position.y,
+      ui_width: 600,
+      ui_height: 400
+    }
+
+    try {
+      const terminal = await db.terminals.create({
+        zoneId: selectedZone.id,
+        metadata
+      })
+
+      // Update local state
+      setSelectedZone({
+        ...selectedZone,
+        terminals: [...(selectedZone.terminals || []), terminal],
+        terminalCount: (selectedZone.terminalCount || 0) + 1
+      })
+
+      // Spawn the PTY process
+      try {
+        await window.electronAPI.pty.create(terminal.id, terminal.config)
+      } catch (err) {
+        console.error('Failed to spawn PTY:', err)
+        // Terminal is created, but PTY failed - user can reconnect later
+      }
+
+      return terminal
+    } catch (err) {
+      console.error('Failed to create terminal:', err)
+      throw err
+    }
+  }, [db.terminals, selectedZone, setSelectedZone])
+
+  /**
    * Check if a node type can be created in the current context
    */
   const canCreateNodeType = useCallback((nodeType: CanvasNodeType): boolean => {
@@ -189,6 +238,8 @@ export function useCanvasNodeCreation() {
       case 'task':
         return !!selectedPlan
       case 'memory':
+        return !!selectedZone
+      case 'terminal':
         return !!selectedZone
       default:
         return false
@@ -206,6 +257,8 @@ export function useCanvasNodeCreation() {
         return selectedPlan ? null : 'No plan selected'
       case 'memory':
         return selectedZone ? null : 'No zone selected'
+      case 'terminal':
+        return selectedZone ? null : 'No zone selected'
       default:
         return 'Unknown node type'
     }
@@ -215,6 +268,7 @@ export function useCanvasNodeCreation() {
     createPlan,
     createTask,
     createMemory,
+    createTerminal,
     canCreateNodeType,
     getCannotCreateReason,
     hasSelectedZone: !!selectedZone,

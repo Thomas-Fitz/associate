@@ -9,7 +9,8 @@ import {
   parseAGTypeProperties
 } from './database'
 import { NodeLabel, RelationType, RelationProperty } from './graph-schema'
-import { PlanQueries, TaskQueries, DependencyQueries, ZoneQueries, MemoryQueries } from './cypher-builder'
+import { PlanQueries, TaskQueries, DependencyQueries, ZoneQueries, MemoryQueries, TerminalQueries } from './cypher-builder'
+import { terminalManager } from './terminal-manager'
 import type {
   Plan,
   PlanStatus,
@@ -24,7 +25,12 @@ import type {
   ZoneWithContents,
   PlanInZone,
   TaskInZone,
-  MemoryInZone
+  MemoryInZone,
+  TerminalInZone,
+  TerminalConfig,
+  TerminalState,
+  TerminalCreateOptions,
+  TerminalUpdateOptions
 } from '../renderer/types'
 
 // ============================================================================
@@ -153,7 +159,8 @@ function rowToZone(row: Record<string, unknown>): Zone {
     updatedAt: String(props.updated_at || props.updatedAt || ''),
     planCount: parseTaskCount(row.plan_count),
     taskCount: parseTaskCount(row.task_count),
-    memoryCount: parseTaskCount(row.memory_count)
+    memoryCount: parseTaskCount(row.memory_count),
+    terminalCount: parseTaskCount(row.terminal_count)
   }
 }
 
@@ -175,6 +182,47 @@ function rowToMemory(row: Record<string, unknown>): MemoryInZone {
     ui_y: typeof metadata.ui_y === 'number' ? metadata.ui_y : undefined,
     ui_width: typeof metadata.ui_width === 'number' ? metadata.ui_width : undefined,
     ui_height: typeof metadata.ui_height === 'number' ? metadata.ui_height : undefined
+  }
+}
+
+/**
+ * Convert AGE result row to Terminal object.
+ */
+function rowToTerminal(row: Record<string, unknown>): TerminalInZone {
+  const props = parseAGTypeProperties(row.term || row.terminal || row.result)
+  const metadata = parseMetadata(props.metadata)
+  const config = parseMetadata(props.config)
+  const stateRaw = parseMetadata(props.state)
+  
+  // Ensure state has a valid status
+  const state: TerminalState = {
+    status: (stateRaw.status as TerminalState['status']) || 'disconnected',
+    exitCode: typeof stateRaw.exitCode === 'number' ? stateRaw.exitCode : undefined,
+    error: typeof stateRaw.error === 'string' ? stateRaw.error : undefined,
+    hasUnreadOutput: typeof stateRaw.hasUnreadOutput === 'boolean' ? stateRaw.hasUnreadOutput : undefined
+  }
+  
+  return {
+    id: String(props.id || ''),
+    name: String(props.name || ''),
+    config: {
+      shell: typeof config.shell === 'string' ? config.shell : undefined,
+      cwd: typeof config.cwd === 'string' ? config.cwd : undefined,
+      env: config.env as Record<string, string> | undefined,
+      envBlocklist: config.envBlocklist as string[] | undefined
+    },
+    state,
+    metadata: {
+      ui_x: typeof metadata.ui_x === 'number' ? metadata.ui_x : undefined,
+      ui_y: typeof metadata.ui_y === 'number' ? metadata.ui_y : undefined,
+      ui_width: typeof metadata.ui_width === 'number' ? metadata.ui_width : undefined,
+      ui_height: typeof metadata.ui_height === 'number' ? metadata.ui_height : undefined,
+      ui_collapsed: typeof metadata.ui_collapsed === 'boolean' ? metadata.ui_collapsed : undefined,
+      lastCwd: typeof metadata.lastCwd === 'string' ? metadata.lastCwd : undefined,
+      fontSize: typeof metadata.fontSize === 'number' ? metadata.fontSize : undefined
+    },
+    createdAt: String(props.created_at || props.createdAt || ''),
+    updatedAt: String(props.updated_at || props.updatedAt || '')
   }
 }
 
@@ -510,7 +558,7 @@ export function setupIpcHandlers(): void {
     
     const rows = await executeCypher<Record<string, unknown>>(
       query,
-      'z agtype, plan_count agtype, task_count agtype, memory_count agtype'
+      'z agtype, plan_count agtype, task_count agtype, memory_count agtype, terminal_count agtype'
     )
 
     return rows.map(row => rowToZone(row))
@@ -523,7 +571,7 @@ export function setupIpcHandlers(): void {
     const query = ZoneQueries.getById(zoneId)
     const rows = await executeCypher<Record<string, unknown>>(
       query,
-      'z agtype, plan_count agtype, task_count agtype, memory_count agtype'
+      'z agtype, plan_count agtype, task_count agtype, memory_count agtype, terminal_count agtype'
     )
 
     if (rows.length === 0) {
@@ -629,8 +677,8 @@ export function setupIpcHandlers(): void {
             createdAt: String(taskProps.created_at || taskProps.createdAt || ''),
             updatedAt: String(taskProps.updated_at || taskProps.updatedAt || ''),
             planId: String(planProps.id || ''),
-            dependsOn: parseAGArray(taskObj.depends_on || (taskSource as Record<string, unknown>).depends_on),
-            blocks: parseAGArray(taskObj.blocks || (taskSource as Record<string, unknown>).blocks)
+            dependsOn: parseAGArray(taskObj.depends_on),
+            blocks: parseAGArray(taskObj.blocks)
           }
         })
 
@@ -658,13 +706,20 @@ export function setupIpcHandlers(): void {
     const memoryRows = await executeCypher<Record<string, unknown>>(memoriesQuery, 'm agtype')
     const memories: MemoryInZone[] = memoryRows.map(row => rowToMemory(row))
 
+    // Get terminals
+    const terminalsQuery = ZoneQueries.getTerminals(zoneId)
+    const terminalRows = await executeCypher<Record<string, unknown>>(terminalsQuery, 'term agtype')
+    const terminals: TerminalInZone[] = terminalRows.map(row => rowToTerminal(row))
+
     return {
       ...zone,
       plans,
       memories,
+      terminals,
       planCount: plans.length,
       taskCount: plans.reduce((sum, p) => sum + p.tasks.length, 0),
-      memoryCount: memories.length
+      memoryCount: memories.length,
+      terminalCount: terminals.length
     }
   })
 
@@ -720,8 +775,25 @@ export function setupIpcHandlers(): void {
 
   /**
    * Delete a zone and all its contents.
+   * Cleans up terminal PTYs and scrollback files before deleting from database.
    */
   ipcMain.handle('db:zones:delete', async (_event, zoneId: string): Promise<void> => {
+    // First, get all terminal IDs in this zone so we can clean up PTYs and scrollback files
+    const terminalIdsQuery = ZoneQueries.getTerminalIds(zoneId)
+    const terminalIdRows = await executeCypher<{ id: unknown }>(terminalIdsQuery, 'id agtype')
+    
+    // Kill running PTYs and delete scrollback files for each terminal
+    for (const row of terminalIdRows) {
+      const terminalId = String(row.id || '').replace(/^"|"$/g, '') // Remove AGE string quotes
+      if (terminalId) {
+        // Kill the PTY if running
+        terminalManager.kill(terminalId)
+        // Delete scrollback file
+        await terminalManager.deleteScrollbackFile(terminalId)
+      }
+    }
+    
+    // Now delete the zone and all its contents from the database
     const query = ZoneQueries.delete(zoneId)
     await executeCypher(query, 'result agtype')
   })
@@ -915,5 +987,118 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('db:memories:unlink', async (_event, memoryId: string, targetId: string): Promise<void> => {
     const query = MemoryQueries.unlinkFrom(memoryId, targetId)
     await executeCypher(query, 'm agtype')
+  })
+
+  // --------------------------------------------------------------------------
+  // Terminal Handlers
+  // --------------------------------------------------------------------------
+
+  /**
+   * List terminals in a zone.
+   */
+  ipcMain.handle('db:terminals:list', async (_event, zoneId: string): Promise<TerminalInZone[]> => {
+    const query = TerminalQueries.listByZone(zoneId)
+    const rows = await executeCypher<Record<string, unknown>>(query, 'term agtype')
+    return rows.map(row => rowToTerminal(row))
+  })
+
+  /**
+   * Create a new terminal in a zone.
+   * Auto-generates name as "Terminal N" where N is the count + 1.
+   */
+  ipcMain.handle('db:terminals:create', async (_event, options: TerminalCreateOptions): Promise<TerminalInZone> => {
+    const client = await getClient()
+
+    try {
+      await client.query('BEGIN')
+
+      const terminalId = crypto.randomUUID()
+      
+      // Get current terminal count for auto-naming
+      let name = options.name
+      if (!name) {
+        const countQuery = TerminalQueries.countInZone(options.zoneId)
+        const countRows = await executeCypherInTransaction<{ count: unknown }>(client, countQuery, 'count agtype')
+        const count = typeof countRows[0]?.count === 'number' ? countRows[0].count : 
+                      typeof countRows[0]?.count === 'string' ? parseInt(countRows[0].count, 10) : 0
+        name = `Terminal ${count + 1}`
+      }
+
+      // Prepare config, state, and metadata as JSON strings
+      const config = JSON.stringify(options.config || {}).replace(/'/g, "''")
+      const state = JSON.stringify({ status: 'disconnected' }).replace(/'/g, "''")
+      const metadata = JSON.stringify(options.metadata || {}).replace(/'/g, "''")
+
+      // Create the terminal
+      const createQuery = TerminalQueries.create({
+        id: terminalId,
+        name,
+        config,
+        state,
+        metadata
+      })
+      await executeCypherInTransaction(client, createQuery, 'term agtype')
+
+      // Link terminal to zone
+      const linkQuery = TerminalQueries.linkToZone(terminalId, options.zoneId)
+      const linkRows = await executeCypherInTransaction<Record<string, unknown>>(client, linkQuery, 'term agtype')
+
+      await client.query('COMMIT')
+
+      return rowToTerminal(linkRows[0])
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
+  })
+
+  /**
+   * Update a terminal.
+   */
+  ipcMain.handle('db:terminals:update', async (_event, terminalId: string, options: TerminalUpdateOptions): Promise<TerminalInZone> => {
+    const now = new Date().toISOString()
+    const sets: string[] = [`term.updated_at = '${now}'`]
+
+    if (options.name !== undefined) {
+      sets.push(`term.name = '${escapeCypherString(options.name)}'`)
+    }
+    if (options.config !== undefined) {
+      const configJson = JSON.stringify(options.config).replace(/'/g, "''")
+      sets.push(`term.config = '${configJson}'`)
+    }
+    if (options.state !== undefined) {
+      const stateJson = JSON.stringify(options.state).replace(/'/g, "''")
+      sets.push(`term.state = '${stateJson}'`)
+    }
+    if (options.metadata !== undefined) {
+      const metadataJson = JSON.stringify(options.metadata).replace(/'/g, "''")
+      sets.push(`term.metadata = '${metadataJson}'`)
+    }
+
+    const query = TerminalQueries.update(terminalId, sets)
+    const rows = await executeCypher<Record<string, unknown>>(query, 'term agtype')
+
+    if (rows.length === 0) {
+      throw new Error(`Terminal not found: ${terminalId}`)
+    }
+
+    return rowToTerminal(rows[0])
+  })
+
+  /**
+   * Delete a terminal and its scrollback file.
+   */
+  ipcMain.handle('db:terminals:delete', async (_event, terminalId: string): Promise<void> => {
+    // Kill the PTY if running
+    terminalManager.kill(terminalId)
+    
+    // Delete scrollback file
+    await terminalManager.deleteScrollbackFile(terminalId)
+
+    // Delete from database
+    const query = TerminalQueries.delete(terminalId)
+    await executeCypher(query, 'result agtype')
   })
 }

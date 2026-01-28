@@ -1,5 +1,7 @@
 // Zone types for Phase 0 prototype
 
+import type { TerminalInZone } from './terminal'
+
 export interface ZoneMetadata {
   [key: string]: unknown
 }
@@ -15,6 +17,7 @@ export interface Zone {
   planCount?: number
   taskCount?: number
   memoryCount?: number
+  terminalCount?: number
 }
 
 export interface MemoryInZone {
@@ -72,4 +75,5 @@ export interface PlanInZone {
 export interface ZoneWithContents extends Zone {
   plans: PlanInZone[]
   memories: MemoryInZone[]
+  terminals: TerminalInZone[]
 }

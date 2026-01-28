@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
 import type {
   Plan,
   Task,
@@ -9,7 +9,13 @@ import type {
   PlanWithTasks,
   Zone,
   ZoneWithContents,
-  MemoryInZone
+  MemoryInZone,
+  TerminalInZone,
+  TerminalConfig,
+  TerminalCreateOptions,
+  TerminalUpdateOptions,
+  PtyDataEvent,
+  PtyExitEvent
 } from '../renderer/types'
 
 // Expose database operations to renderer
@@ -80,6 +86,48 @@ const api = {
       ipcRenderer.invoke('db:memories:link', memoryId, targetId),
     unlinkFrom: (memoryId: string, targetId: string): Promise<void> =>
       ipcRenderer.invoke('db:memories:unlink', memoryId, targetId)
+  },
+
+  // Terminal DB operations (for persistence)
+  terminals: {
+    list: (zoneId: string): Promise<TerminalInZone[]> =>
+      ipcRenderer.invoke('db:terminals:list', zoneId),
+    create: (options: TerminalCreateOptions): Promise<TerminalInZone> =>
+      ipcRenderer.invoke('db:terminals:create', options),
+    update: (terminalId: string, options: TerminalUpdateOptions): Promise<TerminalInZone> =>
+      ipcRenderer.invoke('db:terminals:update', terminalId, options),
+    delete: (terminalId: string): Promise<void> =>
+      ipcRenderer.invoke('db:terminals:delete', terminalId)
+  },
+
+  // PTY operations (for live terminal interaction)
+  pty: {
+    create: (terminalId: string, config: TerminalConfig): Promise<void> =>
+      ipcRenderer.invoke('pty:create', terminalId, config),
+    write: (terminalId: string, data: string): Promise<void> =>
+      ipcRenderer.invoke('pty:write', terminalId, data),
+    resize: (terminalId: string, cols: number, rows: number): Promise<void> =>
+      ipcRenderer.invoke('pty:resize', terminalId, cols, rows),
+    kill: (terminalId: string): Promise<void> =>
+      ipcRenderer.invoke('pty:kill', terminalId),
+    loadScrollback: (terminalId: string): Promise<string> =>
+      ipcRenderer.invoke('pty:loadScrollback', terminalId),
+    isRunning: (terminalId: string): Promise<boolean> =>
+      ipcRenderer.invoke('pty:isRunning', terminalId),
+    getRunningCount: (): Promise<number> =>
+      ipcRenderer.invoke('pty:getRunningCount'),
+    
+    // Event subscriptions (returns unsubscribe function)
+    onData: (callback: (data: PtyDataEvent) => void) => {
+      const handler = (_event: IpcRendererEvent, data: PtyDataEvent) => callback(data)
+      ipcRenderer.on('pty:data', handler)
+      return () => ipcRenderer.removeListener('pty:data', handler)
+    },
+    onExit: (callback: (data: PtyExitEvent) => void) => {
+      const handler = (_event: IpcRendererEvent, data: PtyExitEvent) => callback(data)
+      ipcRenderer.on('pty:exit', handler)
+      return () => ipcRenderer.removeListener('pty:exit', handler)
+    }
   }
 }
 

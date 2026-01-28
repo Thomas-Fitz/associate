@@ -11,7 +11,10 @@ import type {
   ZoneWithContents,
   PlanInZone,
   TaskInZone,
-  MemoryInZone
+  MemoryInZone,
+  TerminalInZone,
+  PtyDataEvent,
+  PtyExitEvent
 } from '../types'
 
 declare global {
@@ -194,6 +197,21 @@ const mockMemories: Record<string, MemoryInZone[]> = {
   'zone-2': []
 }
 
+const mockTerminals: Record<string, TerminalInZone[]> = {
+  'zone-1': [
+    {
+      id: 'terminal-1',
+      name: 'Terminal 1',
+      config: { cwd: '/home/user' },
+      state: { status: 'disconnected' },
+      metadata: { ui_x: 100, ui_y: 450, ui_width: 600, ui_height: 400 },
+      createdAt: '2024-01-15T10:00:00Z',
+      updatedAt: '2024-01-15T10:00:00Z'
+    }
+  ],
+  'zone-2': []
+}
+
 // Zone to plans mapping
 const zonePlanMapping: Record<string, string[]> = {
   'zone-1': ['plan-1', 'plan-2'],
@@ -206,11 +224,14 @@ let mockState = {
   plans: [...mockPlans],
   tasks: JSON.parse(JSON.stringify(mockTasks)) as Record<string, TaskInPlan[]>,
   memories: JSON.parse(JSON.stringify(mockMemories)) as Record<string, MemoryInZone[]>,
+  terminals: JSON.parse(JSON.stringify(mockTerminals)) as Record<string, TerminalInZone[]>,
   zonePlanMapping: { ...zonePlanMapping }
 }
 
-function createMockAPI(): ElectronAPI {
-  return {
+// Mock API type that matches ElectronAPI structure but with relaxed return types
+// The real ElectronAPI has IpcRenderer returns on event subscription, which we can't replicate in browser
+function createMockAPI() {
+  const mockApi = {
     zones: {
       list: async (options?: { search?: string; limit?: number }): Promise<Zone[]> => {
         let result = [...mockState.zones]
@@ -266,14 +287,17 @@ function createMockAPI(): ElectronAPI {
         }).filter((p): p is PlanInZone => p !== null)
 
         const memories = mockState.memories[zoneId] || []
+        const terminals = mockState.terminals[zoneId] || []
 
         return {
           ...zone,
           plans,
           memories,
+          terminals,
           planCount: plans.length,
           taskCount: plans.reduce((sum, p) => sum + p.tasks.length, 0),
-          memoryCount: memories.length
+          memoryCount: memories.length,
+          terminalCount: terminals.length
         }
       },
 
@@ -298,6 +322,7 @@ function createMockAPI(): ElectronAPI {
         mockState.zones.push(newZone)
         mockState.zonePlanMapping[newZone.id] = []
         mockState.memories[newZone.id] = []
+        mockState.terminals[newZone.id] = []
         return newZone
       },
 
@@ -322,6 +347,7 @@ function createMockAPI(): ElectronAPI {
         })
         delete mockState.zonePlanMapping[zoneId]
         delete mockState.memories[zoneId]
+        delete mockState.terminals[zoneId]
         mockState.zones = mockState.zones.filter(z => z.id !== zoneId)
       }
     },
@@ -641,8 +667,112 @@ function createMockAPI(): ElectronAPI {
         // Mock implementation - just log for now
         console.log('Mock: unlinking memory', _memoryId, 'from', _targetId)
       }
+    },
+
+    terminals: {
+      list: async (zoneId: string): Promise<TerminalInZone[]> => {
+        return mockState.terminals[zoneId] || []
+      },
+
+      create: async (options: { zoneId: string; name?: string; config?: { shell?: string; cwd?: string; env?: Record<string, string> }; metadata?: Record<string, unknown> }): Promise<TerminalInZone> => {
+        const now = new Date().toISOString()
+        const existingTerminals = mockState.terminals[options.zoneId] || []
+        const terminalNumber = existingTerminals.length + 1
+        const metadata = options.metadata || {}
+        
+        const newTerminal: TerminalInZone = {
+          id: `terminal-${Date.now()}`,
+          name: options.name || `Terminal ${terminalNumber}`,
+          config: options.config || {},
+          state: { status: 'disconnected' },
+          metadata: {
+            ui_x: typeof metadata.ui_x === 'number' ? metadata.ui_x : 100,
+            ui_y: typeof metadata.ui_y === 'number' ? metadata.ui_y : 100,
+            ui_width: typeof metadata.ui_width === 'number' ? metadata.ui_width : 600,
+            ui_height: typeof metadata.ui_height === 'number' ? metadata.ui_height : 400,
+            ...metadata
+          },
+          createdAt: now,
+          updatedAt: now
+        }
+        
+        if (!mockState.terminals[options.zoneId]) {
+          mockState.terminals[options.zoneId] = []
+        }
+        mockState.terminals[options.zoneId].push(newTerminal)
+        
+        return newTerminal
+      },
+
+      update: async (terminalId: string, options: { name?: string; config?: { shell?: string; cwd?: string; env?: Record<string, string> }; state?: { status?: string; exitCode?: number; error?: string }; metadata?: Record<string, unknown> }): Promise<TerminalInZone> => {
+        for (const zoneId in mockState.terminals) {
+          const terminalIndex = mockState.terminals[zoneId].findIndex(t => t.id === terminalId)
+          if (terminalIndex !== -1) {
+            const terminal = mockState.terminals[zoneId][terminalIndex]
+            const updatedTerminal: TerminalInZone = {
+              ...terminal,
+              name: options.name ?? terminal.name,
+              config: options.config ? { ...terminal.config, ...options.config } : terminal.config,
+              state: options.state ? { ...terminal.state, ...options.state } as TerminalInZone['state'] : terminal.state,
+              metadata: options.metadata ? { ...terminal.metadata, ...options.metadata } : terminal.metadata,
+              updatedAt: new Date().toISOString()
+            }
+            mockState.terminals[zoneId][terminalIndex] = updatedTerminal
+            return updatedTerminal
+          }
+        }
+        throw new Error(`Terminal not found: ${terminalId}`)
+      },
+
+      delete: async (terminalId: string): Promise<void> => {
+        for (const zoneId in mockState.terminals) {
+          const terminalIndex = mockState.terminals[zoneId].findIndex(t => t.id === terminalId)
+          if (terminalIndex !== -1) {
+            mockState.terminals[zoneId].splice(terminalIndex, 1)
+            return
+          }
+        }
+      }
+    },
+
+    // Mock PTY API for browser testing
+    pty: {
+      create: async (_terminalId: string, _config?: { shell?: string; cwd?: string; env?: Record<string, string> }): Promise<void> => {
+        console.log('Mock: creating PTY for', _terminalId)
+      },
+      write: async (_terminalId: string, _data: string): Promise<void> => {
+        console.log('Mock: writing to PTY', _terminalId, _data)
+      },
+      resize: async (_terminalId: string, _cols: number, _rows: number): Promise<void> => {
+        console.log('Mock: resizing PTY', _terminalId, _cols, _rows)
+      },
+      kill: async (_terminalId: string): Promise<void> => {
+        console.log('Mock: killing PTY', _terminalId)
+      },
+      loadScrollback: async (_terminalId: string): Promise<string> => {
+        console.log('Mock: loading scrollback for', _terminalId)
+        return ''
+      },
+      isRunning: async (_terminalId: string): Promise<boolean> => {
+        return false
+      },
+      getRunningCount: async (): Promise<number> => {
+        return 0
+      },
+      onData: (_callback: (event: PtyDataEvent) => void): (() => void) => {
+        console.log('Mock: registered PTY data callback')
+        return () => { /* no-op */ }
+      },
+      onExit: (_callback: (event: PtyExitEvent) => void): (() => void) => {
+        console.log('Mock: registered PTY exit callback')
+        return () => { /* no-op */ }
+      }
     }
   }
+  
+  // Cast to ElectronAPI - the mock doesn't perfectly match IpcRenderer return types
+  // but provides the same functional interface for browser testing
+  return mockApi as unknown as ElectronAPI
 }
 
 export function useDatabase(): ElectronAPI {

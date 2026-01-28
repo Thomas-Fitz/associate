@@ -19,18 +19,21 @@ import '@xyflow/react/dist/style.css'
 import { PlanNode, type PlanNodeData, type PlanNodeType, PLAN_DEFAULT_WIDTH, PLAN_DEFAULT_HEIGHT } from './PlanNode'
 import { MemoryNode, type MemoryNodeData, type MemoryNodeType } from './MemoryNode'
 import { ZoneTaskNode, type ZoneTaskNodeData, type ZoneTaskNodeType } from './ZoneTaskNode'
+import { TerminalNode, type TerminalNodeData, type TerminalNodeType, TERMINAL_DEFAULT_WIDTH, TERMINAL_DEFAULT_HEIGHT } from './TerminalNode'
 import { DependencyEdge, DependencyArrowMarker, type DependencyEdgeType } from '../PlanningWindow/DependencyEdge'
 import { useZones } from '../../hooks/useZones'
 import { useToast } from '../../hooks'
 import { useAppStore } from '../../stores/appStore'
 import { useDatabase } from '../../hooks/useDatabase'
 import type { ZoneWithContents } from '../../types/zone'
+import type { TerminalState } from '../../types/terminal'
 
 // Custom node types for the zone
 const nodeTypes = {
   plan: PlanNode,
   memory: MemoryNode,
-  zoneTask: ZoneTaskNode
+  zoneTask: ZoneTaskNode,
+  terminal: TerminalNode
 }
 
 const edgeTypes = {
@@ -38,7 +41,7 @@ const edgeTypes = {
 }
 
 // Combined node type for the zone
-type ZoneNode = PlanNodeType | MemoryNodeType | ZoneTaskNodeType
+type ZoneNode = PlanNodeType | MemoryNodeType | ZoneTaskNodeType | TerminalNodeType
 type ZoneEdge = DependencyEdgeType
 
 // Default dimensions
@@ -149,6 +152,31 @@ function createNodesFromZone(zone: ZoneWithContents): ZoneNode[] {
       }
     } as MemoryNodeType)
   })
+
+  // Add Terminal nodes
+  if (zone.terminals) {
+    zone.terminals.forEach((terminal, index) => {
+      nodes.push({
+        id: terminal.id,
+        type: 'terminal',
+        position: {
+          x: terminal.metadata.ui_x ?? 50 + index * 50,
+          y: terminal.metadata.ui_y ?? 500 + index * 50
+        },
+        data: {
+          terminal,
+          isSelected: false,
+          width: terminal.metadata.ui_width || TERMINAL_DEFAULT_WIDTH,
+          height: terminal.metadata.ui_height || TERMINAL_DEFAULT_HEIGHT,
+          onNameChange: undefined,
+          onResize: undefined,
+          onContextMenu: undefined,
+          onFocus: undefined,
+          onStateChange: undefined
+        }
+      } as TerminalNodeType)
+    })
+  }
 
   return nodes
 }
@@ -403,6 +431,124 @@ export function ZoneWindow() {
     }
   }, [setNodes, db.memories, toast])
 
+  // --- Terminal Callbacks ---
+
+  const handleTerminalNameChange = useCallback(async (terminalId: string, name: string) => {
+    setNodes((nds) =>
+      nds.map((node) => {
+        if (node.id === terminalId && node.type === 'terminal') {
+          const termData = node.data as TerminalNodeData
+          return {
+            ...node,
+            data: {
+              ...termData,
+              terminal: {
+                ...termData.terminal,
+                name
+              }
+            }
+          } as TerminalNodeType
+        }
+        return node
+      })
+    )
+    
+    // Persist to database
+    try {
+      await db.terminals.update(terminalId, { name })
+    } catch (err) {
+      console.error('Failed to persist terminal name:', err)
+      toast.error('Failed to save terminal name')
+    }
+  }, [setNodes, db.terminals, toast])
+
+  const handleTerminalResize = useCallback(async (terminalId: string, width: number, height: number) => {
+    setNodes((nds) =>
+      nds.map((node) => {
+        if (node.id === terminalId && node.type === 'terminal') {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              width,
+              height
+            }
+          } as TerminalNodeType
+        }
+        return node
+      })
+    )
+    
+    // Persist to database
+    try {
+      await db.terminals.update(terminalId, { 
+        metadata: { ui_width: width, ui_height: height } 
+      })
+    } catch (err) {
+      console.error('Failed to persist terminal size:', err)
+      toast.error('Failed to save terminal size')
+    }
+  }, [setNodes, db.terminals, toast])
+
+  const handleTerminalContextMenu = useCallback((e: React.MouseEvent, terminalId: string) => {
+    e.preventDefault()
+    showContextMenu(e.clientX, e.clientY, 'terminal', { terminalId })
+  }, [showContextMenu])
+
+  const handleTerminalFocus = useCallback((terminalId: string) => {
+    // Clear the unread output flag by updating the terminal state
+    setNodes((nds) =>
+      nds.map((node) => {
+        if (node.id === terminalId && node.type === 'terminal') {
+          const termData = node.data as TerminalNodeData
+          return {
+            ...node,
+            data: {
+              ...termData,
+              terminal: {
+                ...termData.terminal,
+                state: {
+                  ...termData.terminal.state,
+                  hasUnreadOutput: false
+                }
+              }
+            }
+          } as TerminalNodeType
+        }
+        return node
+      })
+    )
+  }, [setNodes])
+
+  const handleTerminalStateChange = useCallback(async (terminalId: string, state: TerminalState) => {
+    // Update local state
+    setNodes((nds) =>
+      nds.map((node) => {
+        if (node.id === terminalId && node.type === 'terminal') {
+          const termData = node.data as TerminalNodeData
+          return {
+            ...node,
+            data: {
+              ...termData,
+              terminal: {
+                ...termData.terminal,
+                state
+              }
+            }
+          } as TerminalNodeType
+        }
+        return node
+      })
+    )
+    
+    // Persist state changes to database
+    try {
+      await db.terminals.update(terminalId, { state })
+    } catch (err) {
+      console.error('Failed to persist terminal state:', err)
+    }
+  }, [setNodes, db.terminals])
+
   // --- Attach callbacks to nodes ---
   // We need to update callbacks when they change (they reference setNodes)
   useEffect(() => {
@@ -441,6 +587,19 @@ export function ZoneWindow() {
             }
           } as MemoryNodeType
         }
+        if (node.type === 'terminal') {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              onNameChange: handleTerminalNameChange,
+              onResize: handleTerminalResize,
+              onContextMenu: handleTerminalContextMenu,
+              onFocus: handleTerminalFocus,
+              onStateChange: handleTerminalStateChange
+            }
+          } as TerminalNodeType
+        }
         return node
       })
     )
@@ -454,7 +613,12 @@ export function ZoneWindow() {
     handleTaskContextMenu,
     handleMemoryContentChange,
     handleMemoryContextMenu,
-    handleMemoryResize
+    handleMemoryResize,
+    handleTerminalNameChange,
+    handleTerminalResize,
+    handleTerminalContextMenu,
+    handleTerminalFocus,
+    handleTerminalStateChange
   ])
 
   // --- Update selection state in node data ---
@@ -530,6 +694,10 @@ export function ZoneWindow() {
           })
         } else if (nodeType === 'memory') {
           await db.memories.update(nodeId, { 
+            metadata: { ui_x: position.x, ui_y: position.y } 
+          })
+        } else if (nodeType === 'terminal') {
+          await db.terminals.update(nodeId, { 
             metadata: { ui_x: position.x, ui_y: position.y } 
           })
         }
@@ -859,6 +1027,7 @@ export function ZoneWindow() {
           nodeColor={(node) => {
             if (node.type === 'plan') return '#e0e7ff'
             if (node.type === 'memory') return '#fef3c7'
+            if (node.type === 'terminal') return '#1e1e1e'
             return node.selected ? '#0ea5e9' : '#e4e4e7'
           }}
           maskColor="rgba(0, 0, 0, 0.1)"
@@ -872,7 +1041,7 @@ export function ZoneWindow() {
       <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-sm px-4 py-2 rounded-lg shadow-sm border border-surface-200">
         <div className="text-sm font-medium text-surface-800">{selectedZone.name}</div>
         <div className="text-xs text-surface-500">
-          {selectedZone.plans.length} plans | {selectedZone.plans.reduce((acc, p) => acc + p.tasks.length, 0)} tasks | {selectedZone.memories.length} memories
+          {selectedZone.plans.length} plans | {selectedZone.plans.reduce((acc, p) => acc + p.tasks.length, 0)} tasks | {selectedZone.memories.length} memories{selectedZone.terminals?.length ? ` | ${selectedZone.terminals.length} terminals` : ''}
         </div>
       </div>
     </div>

@@ -1,0 +1,173 @@
+import { useEffect, useRef, useCallback, useState } from 'react'
+import type { TerminalConfig, TerminalState } from '../types/terminal'
+
+interface PtyDataEvent {
+  terminalId: string
+  data: string
+}
+
+interface PtyExitEvent {
+  terminalId: string
+  exitCode: number
+  error?: string
+}
+
+/**
+ * Hook for managing PTY IPC communication for a terminal.
+ * Handles event subscriptions and provides methods for terminal operations.
+ * 
+ * This hook is responsible for:
+ * - Subscribing to pty:data and pty:exit events for this terminal
+ * - Providing write/resize/kill/connect operations
+ * - Tracking terminal state (running/stopped/error/disconnected)
+ * - Loading scrollback when reconnecting
+ */
+export function useTerminalIPC(terminalId: string, config: TerminalConfig = {}) {
+  const [state, setState] = useState<TerminalState>({ status: 'disconnected' })
+  const [isConnecting, setIsConnecting] = useState(false)
+  
+  // Callback refs for data and exit handlers
+  const onDataRef = useRef<((data: string) => void) | null>(null)
+  const onExitRef = useRef<((exitCode: number, error?: string) => void) | null>(null)
+
+  /**
+   * Set the data handler (called when PTY outputs data)
+   */
+  const setOnData = useCallback((handler: (data: string) => void) => {
+    onDataRef.current = handler
+  }, [])
+
+  /**
+   * Set the exit handler (called when PTY exits)
+   */
+  const setOnExit = useCallback((handler: (exitCode: number, error?: string) => void) => {
+    onExitRef.current = handler
+  }, [])
+
+  // Subscribe to PTY events on mount
+  useEffect(() => {
+    const handleData = (payload: PtyDataEvent) => {
+      if (payload.terminalId === terminalId) {
+        onDataRef.current?.(payload.data)
+      }
+    }
+
+    const handleExit = (payload: PtyExitEvent) => {
+      if (payload.terminalId === terminalId) {
+        const newState: TerminalState = {
+          status: payload.error ? 'error' : 'stopped',
+          exitCode: payload.exitCode,
+          error: payload.error
+        }
+        setState(newState)
+        onExitRef.current?.(payload.exitCode, payload.error)
+      }
+    }
+
+    // Subscribe to events
+    const unsubData = window.electronAPI.pty.onData(handleData)
+    const unsubExit = window.electronAPI.pty.onExit(handleExit)
+
+    // Cleanup subscriptions on unmount
+    return () => {
+      unsubData()
+      unsubExit()
+    }
+  }, [terminalId])
+
+  /**
+   * Connect to the PTY (spawn a new shell process)
+   */
+  const connect = useCallback(async (): Promise<void> => {
+    if (state.status === 'running' || isConnecting) {
+      return
+    }
+
+    setIsConnecting(true)
+    try {
+      await window.electronAPI.pty.create(terminalId, config)
+      setState({ status: 'running' })
+    } catch (err) {
+      setState({
+        status: 'error',
+        error: err instanceof Error ? err.message : 'Failed to connect'
+      })
+      throw err
+    } finally {
+      setIsConnecting(false)
+    }
+  }, [terminalId, config, state.status, isConnecting])
+
+  /**
+   * Disconnect from the PTY (kill the shell process)
+   */
+  const disconnect = useCallback(async (): Promise<void> => {
+    if (state.status !== 'running') {
+      return
+    }
+
+    try {
+      await window.electronAPI.pty.kill(terminalId)
+      setState({ status: 'disconnected' })
+    } catch (err) {
+      console.error('Failed to disconnect terminal:', err)
+    }
+  }, [terminalId, state.status])
+
+  /**
+   * Write data to the PTY
+   */
+  const write = useCallback((data: string): void => {
+    if (state.status !== 'running') {
+      console.warn('Cannot write to terminal that is not running')
+      return
+    }
+    window.electronAPI.pty.write(terminalId, data)
+  }, [terminalId, state.status])
+
+  /**
+   * Resize the PTY
+   */
+  const resize = useCallback((cols: number, rows: number): void => {
+    if (state.status !== 'running') {
+      return
+    }
+    window.electronAPI.pty.resize(terminalId, cols, rows)
+  }, [terminalId, state.status])
+
+  /**
+   * Load scrollback from file
+   */
+  const loadScrollback = useCallback(async (): Promise<string> => {
+    try {
+      return await window.electronAPI.pty.loadScrollback(terminalId)
+    } catch (err) {
+      console.error('Failed to load scrollback:', err)
+      return ''
+    }
+  }, [terminalId])
+
+  /**
+   * Check if the PTY is currently running
+   */
+  const checkIsRunning = useCallback(async (): Promise<boolean> => {
+    try {
+      return await window.electronAPI.pty.isRunning(terminalId)
+    } catch (err) {
+      return false
+    }
+  }, [terminalId])
+
+  return {
+    state,
+    isConnecting,
+    connect,
+    disconnect,
+    write,
+    resize,
+    loadScrollback,
+    checkIsRunning,
+    setOnData,
+    setOnExit
+  }
+}

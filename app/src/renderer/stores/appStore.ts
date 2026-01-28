@@ -33,12 +33,13 @@ interface AppState {
     y: number
     canvasX?: number
     canvasY?: number
-    type: 'canvas' | 'task' | 'edge' | 'zone' | 'plan' | 'memory'
+    type: 'canvas' | 'task' | 'edge' | 'zone' | 'plan' | 'memory' | 'terminal'
     taskId?: string
     edgeId?: string
     zoneId?: string
     planId?: string
     memoryId?: string
+    terminalId?: string
   } | null
   
   // Dialogs
@@ -69,6 +70,12 @@ interface AppState {
     visible: boolean
     memoryId: string
     memoryType: string
+  } | null
+
+  deleteTerminalDialog: {
+    visible: boolean
+    terminalId: string
+    terminalName: string
   } | null
 
   // Toast notifications
@@ -112,7 +119,7 @@ interface AppState {
   setSelectedEdgeIds: (ids: Set<string>) => void
   clearEdgeSelection: () => void
   
-  showContextMenu: (x: number, y: number, type: 'canvas' | 'task' | 'edge' | 'zone' | 'plan' | 'memory', options?: { taskId?: string; canvasX?: number; canvasY?: number; edgeId?: string; zoneId?: string; planId?: string; memoryId?: string }) => void
+  showContextMenu: (x: number, y: number, type: 'canvas' | 'task' | 'edge' | 'zone' | 'plan' | 'memory' | 'terminal', options?: { taskId?: string; canvasX?: number; canvasY?: number; edgeId?: string; zoneId?: string; planId?: string; memoryId?: string; terminalId?: string }) => void
   hideContextMenu: () => void
   
   showDeleteDialog: (taskIds: string[]) => void
@@ -129,6 +136,9 @@ interface AppState {
 
   showDeleteMemoryDialog: (memoryId: string, memoryType: string) => void
   hideDeleteMemoryDialog: () => void
+
+  showDeleteTerminalDialog: (terminalId: string, terminalName: string) => void
+  hideDeleteTerminalDialog: () => void
   
   // Task updates
   updateTask: (taskId: string, updates: Partial<TaskInPlan>) => void
@@ -165,6 +175,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   deleteZoneDialog: null,
   deletePlanDialog: null,
   deleteMemoryDialog: null,
+  deleteTerminalDialog: null,
   toasts: [],
   
   // Zone Actions
@@ -235,7 +246,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       edgeId: options.edgeId,
       zoneId: options.zoneId,
       planId: options.planId,
-      memoryId: options.memoryId
+      memoryId: options.memoryId,
+      terminalId: options.terminalId
     }
   }),
   
@@ -270,6 +282,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   }),
 
   hideDeleteMemoryDialog: () => set({ deleteMemoryDialog: null }),
+
+  showDeleteTerminalDialog: (terminalId, terminalName) => set({
+    deleteTerminalDialog: { visible: true, terminalId, terminalName }
+  }),
+
+  hideDeleteTerminalDialog: () => set({ deleteTerminalDialog: null }),
   
   updateTask: (taskId, updates) => {
     const { selectedPlan } = get()

@@ -78,8 +78,10 @@ describe('useCanvasNodeCreation', () => {
           planCount: 0,
           taskCount: 0,
           memoryCount: 0,
+          terminalCount: 0,
           plans: [],
-          memories: []
+          memories: [],
+          terminals: []
         }
       })
 
@@ -130,8 +132,10 @@ describe('useCanvasNodeCreation', () => {
           planCount: 0,
           taskCount: 0,
           memoryCount: 0,
+          terminalCount: 0,
           plans: [],
-          memories: []
+          memories: [],
+          terminals: []
         }
       })
 
@@ -159,8 +163,10 @@ describe('useCanvasNodeCreation', () => {
           planCount: 0,
           taskCount: 0,
           memoryCount: 0,
+          terminalCount: 0,
           plans: [],
-          memories: []
+          memories: [],
+          terminals: []
         }
       })
 
@@ -221,8 +227,10 @@ describe('useCanvasNodeCreation', () => {
           planCount: 0,
           taskCount: 0,
           memoryCount: 0,
+          terminalCount: 0,
           plans: [],
-          memories: []
+          memories: [],
+          terminals: []
         }
       })
 
@@ -251,8 +259,10 @@ describe('useCanvasNodeCreation', () => {
           planCount: 0,
           taskCount: 0,
           memoryCount: 0,
+          terminalCount: 0,
           plans: [],
-          memories: []
+          memories: [],
+          terminals: []
         }
       })
 
@@ -328,8 +338,10 @@ describe('useCanvasNodeCreation', () => {
           planCount: 0,
           taskCount: 0,
           memoryCount: 0,
+          terminalCount: 0,
           plans: [],
-          memories: []
+          memories: [],
+          terminals: []
         }
       })
 
@@ -357,8 +369,10 @@ describe('useCanvasNodeCreation', () => {
           planCount: 0,
           taskCount: 0,
           memoryCount: 0,
+          terminalCount: 0,
           plans: [],
-          memories: []
+          memories: [],
+          terminals: []
         }
       })
 
@@ -386,8 +400,10 @@ describe('useCanvasNodeCreation', () => {
           planCount: 0,
           taskCount: 0,
           memoryCount: 0,
+          terminalCount: 0,
           plans: [],
-          memories: []
+          memories: [],
+          terminals: []
         }
       })
 
@@ -424,8 +440,10 @@ describe('useCanvasNodeCreation', () => {
           planCount: 0,
           taskCount: 0,
           memoryCount: 0,
+          terminalCount: 0,
           plans: [],
-          memories: []
+          memories: [],
+          terminals: []
         }
       })
 

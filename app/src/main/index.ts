@@ -2,6 +2,8 @@ import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'path'
 import { initializeDatabase, closeDatabase } from './database'
 import { setupIpcHandlers } from './ipc-handlers'
+import { setupPtyHandlers } from './terminal-pty-handlers'
+import { terminalManager } from './terminal-manager'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -24,6 +26,9 @@ function createWindow(): void {
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
   })
+
+  // Set webContents for terminal manager
+  terminalManager.setWebContents(mainWindow.webContents)
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
@@ -51,6 +56,9 @@ app.whenReady().then(async () => {
 
   // Set up IPC handlers
   setupIpcHandlers()
+  
+  // Set up PTY handlers
+  setupPtyHandlers()
 
   // Create the main window
   createWindow()
@@ -69,7 +77,14 @@ app.on('window-all-closed', () => {
   }
 })
 
-// Clean up database connection on quit
-app.on('before-quit', async () => {
+// Clean up database connection and terminals on quit
+app.on('before-quit', async (event) => {
+  const runningCount = terminalManager.getRunningCount()
+  
+  if (runningCount > 0) {
+    console.log(`Cleaning up ${runningCount} running terminals...`)
+    await terminalManager.killAll()
+  }
+  
   await closeDatabase()
 })

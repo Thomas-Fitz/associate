@@ -15,7 +15,7 @@ import { escapeCypherString } from './database'
 export const ZoneQueries = {
   /**
    * List zones with optional search filter.
-   * Returns zones sorted by updated_at DESC with plan, task, and memory counts.
+   * Returns zones sorted by updated_at DESC with plan, task, memory, and terminal counts.
    */
   list(options?: { search?: string; limit?: number }): string {
     let query = `MATCH (z:${NodeLabel.Zone})`
@@ -29,8 +29,9 @@ export const ZoneQueries = {
       OPTIONAL MATCH (p:${NodeLabel.Plan})-[:${RelationType.BelongsTo}]->(z)
       OPTIONAL MATCH (t:${NodeLabel.Task})-[:${RelationType.PartOf}]->(p)
       OPTIONAL MATCH (m:${NodeLabel.Memory})-[:${RelationType.BelongsTo}]->(z)
-      WITH z, count(DISTINCT p) as plan_count, count(DISTINCT t) as task_count, count(DISTINCT m) as memory_count
-      RETURN z, plan_count, task_count, memory_count
+      OPTIONAL MATCH (term:${NodeLabel.Terminal})-[:${RelationType.BelongsTo}]->(z)
+      WITH z, count(DISTINCT p) as plan_count, count(DISTINCT t) as task_count, count(DISTINCT m) as memory_count, count(DISTINCT term) as terminal_count
+      RETURN z, plan_count, task_count, memory_count, terminal_count
       ORDER BY z.updated_at DESC
     `
     
@@ -50,8 +51,9 @@ export const ZoneQueries = {
       OPTIONAL MATCH (p:${NodeLabel.Plan})-[:${RelationType.BelongsTo}]->(z)
       OPTIONAL MATCH (t:${NodeLabel.Task})-[:${RelationType.PartOf}]->(p)
       OPTIONAL MATCH (m:${NodeLabel.Memory})-[:${RelationType.BelongsTo}]->(z)
-      WITH z, count(DISTINCT p) as plan_count, count(DISTINCT t) as task_count, count(DISTINCT m) as memory_count
-      RETURN z, plan_count, task_count, memory_count
+      OPTIONAL MATCH (term:${NodeLabel.Terminal})-[:${RelationType.BelongsTo}]->(z)
+      WITH z, count(DISTINCT p) as plan_count, count(DISTINCT t) as task_count, count(DISTINCT m) as memory_count, count(DISTINCT term) as terminal_count
+      RETURN z, plan_count, task_count, memory_count, terminal_count
     `
   },
 
@@ -97,6 +99,17 @@ export const ZoneQueries = {
   },
 
   /**
+   * Get all terminals in a zone.
+   */
+  getTerminals(zoneId: string): string {
+    return `
+      MATCH (term:${NodeLabel.Terminal})-[:${RelationType.BelongsTo}]->(z:${NodeLabel.Zone} {id: '${escapeCypherString(zoneId)}'})
+      RETURN term
+      ORDER BY term.created_at DESC
+    `
+  },
+
+  /**
    * Create a new zone.
    */
   create(options: { id: string; name: string; description?: string; metadata?: string; tags?: string }): string {
@@ -129,6 +142,7 @@ export const ZoneQueries = {
 
   /**
    * Delete a zone and all its contents (cascade delete).
+   * Note: Terminal scrollback files need to be deleted separately.
    */
   delete(zoneId: string): string {
     return `
@@ -136,7 +150,18 @@ export const ZoneQueries = {
       OPTIONAL MATCH (p:${NodeLabel.Plan})-[:${RelationType.BelongsTo}]->(z)
       OPTIONAL MATCH (t:${NodeLabel.Task})-[:${RelationType.PartOf}]->(p)
       OPTIONAL MATCH (m:${NodeLabel.Memory})-[:${RelationType.BelongsTo}]->(z)
-      DETACH DELETE z, p, t, m
+      OPTIONAL MATCH (term:${NodeLabel.Terminal})-[:${RelationType.BelongsTo}]->(z)
+      DETACH DELETE z, p, t, m, term
+    `
+  },
+
+  /**
+   * Get all terminal IDs in a zone (for cleanup before deletion).
+   */
+  getTerminalIds(zoneId: string): string {
+    return `
+      MATCH (term:${NodeLabel.Terminal})-[:${RelationType.BelongsTo}]->(z:${NodeLabel.Zone} {id: '${escapeCypherString(zoneId)}'})
+      RETURN term.id as id
     `
   }
 }
@@ -483,6 +508,104 @@ export const MemoryQueries = {
       MATCH (m:${NodeLabel.Memory} {id: '${escapeCypherString(memoryId)}'})-[r:${RelationType.RelatesTo}]->(target {id: '${escapeCypherString(targetId)}'})
       DELETE r
       RETURN m
+    `
+  }
+}
+
+/**
+ * Query patterns for Terminal operations.
+ */
+export const TerminalQueries = {
+  /**
+   * List terminals in a zone.
+   */
+  listByZone(zoneId: string): string {
+    return `
+      MATCH (term:${NodeLabel.Terminal})-[:${RelationType.BelongsTo}]->(z:${NodeLabel.Zone} {id: '${escapeCypherString(zoneId)}'})
+      RETURN term
+      ORDER BY term.created_at DESC
+    `
+  },
+
+  /**
+   * Get a terminal by ID.
+   */
+  getById(terminalId: string): string {
+    return `
+      MATCH (term:${NodeLabel.Terminal} {id: '${escapeCypherString(terminalId)}'})
+      RETURN term
+    `
+  },
+
+  /**
+   * Count terminals in a zone (for auto-naming).
+   */
+  countInZone(zoneId: string): string {
+    return `
+      MATCH (term:${NodeLabel.Terminal})-[:${RelationType.BelongsTo}]->(z:${NodeLabel.Zone} {id: '${escapeCypherString(zoneId)}'})
+      RETURN count(term) as count
+    `
+  },
+
+  /**
+   * Create a new terminal.
+   */
+  create(options: { id: string; name: string; config: string; state: string; metadata: string }): string {
+    const now = new Date().toISOString()
+    return `
+      CREATE (term:${NodeLabel.Terminal} {
+        id: '${escapeCypherString(options.id)}',
+        node_type: 'Terminal',
+        name: '${escapeCypherString(options.name)}',
+        config: '${options.config}',
+        state: '${options.state}',
+        metadata: '${options.metadata}',
+        created_at: '${now}',
+        updated_at: '${now}'
+      })
+      RETURN term
+    `
+  },
+
+  /**
+   * Link a terminal to a zone.
+   */
+  linkToZone(terminalId: string, zoneId: string): string {
+    return `
+      MATCH (term:${NodeLabel.Terminal} {id: '${escapeCypherString(terminalId)}'}), (z:${NodeLabel.Zone} {id: '${escapeCypherString(zoneId)}'})
+      CREATE (term)-[:${RelationType.BelongsTo}]->(z)
+      RETURN term
+    `
+  },
+
+  /**
+   * Update a terminal.
+   */
+  update(terminalId: string, sets: string[]): string {
+    return `
+      MATCH (term:${NodeLabel.Terminal} {id: '${escapeCypherString(terminalId)}'})
+      SET ${sets.join(', ')}
+      RETURN term
+    `
+  },
+
+  /**
+   * Delete a terminal.
+   */
+  delete(terminalId: string): string {
+    return `
+      MATCH (term:${NodeLabel.Terminal} {id: '${escapeCypherString(terminalId)}'})
+      DETACH DELETE term
+    `
+  },
+
+  /**
+   * Get all terminal IDs in a zone (for cleanup).
+   */
+  getIdsInZone(zoneId: string): string {
+    return `
+      MATCH (term:${NodeLabel.Terminal})-[:${RelationType.BelongsTo}]->(z:${NodeLabel.Zone} {id: '${escapeCypherString(zoneId)}'})
+      RETURN term.id as id
     `
   }
 }

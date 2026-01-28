@@ -7,6 +7,7 @@ import { useAppStore } from '../../stores/appStore'
 const mockCreatePlan = vi.fn()
 const mockCreateTask = vi.fn()
 const mockCreateMemory = vi.fn()
+const mockCreateTerminal = vi.fn()
 const mockCanCreateNodeType = vi.fn()
 const mockGetCannotCreateReason = vi.fn()
 
@@ -15,6 +16,7 @@ vi.mock('../../hooks/useCanvasNodeCreation', () => ({
     createPlan: mockCreatePlan,
     createTask: mockCreateTask,
     createMemory: mockCreateMemory,
+    createTerminal: mockCreateTerminal,
     canCreateNodeType: mockCanCreateNodeType,
     getCannotCreateReason: mockGetCannotCreateReason
   })
@@ -36,6 +38,7 @@ describe('CanvasContextMenu', () => {
     mockCreatePlan.mockResolvedValue({ id: 'plan-1' })
     mockCreateTask.mockResolvedValue({ id: 'task-1' })
     mockCreateMemory.mockResolvedValue({ id: 'memory-1' })
+    mockCreateTerminal.mockResolvedValue({ id: 'terminal-1' })
     
     // Reset store state
     useAppStore.setState({
@@ -50,8 +53,10 @@ describe('CanvasContextMenu', () => {
         planCount: 0,
         taskCount: 0,
         memoryCount: 0,
+        terminalCount: 0,
         plans: [],
-        memories: []
+        memories: [],
+        terminals: []
       },
       selectedPlan: {
         id: 'plan-1',

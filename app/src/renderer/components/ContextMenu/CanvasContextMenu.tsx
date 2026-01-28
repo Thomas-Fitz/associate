@@ -12,7 +12,7 @@ interface CanvasContextMenuProps {
 
 /**
  * Context menu shown when right-clicking on the zone canvas.
- * Provides options to create different node types (Plan, Task, Memory).
+ * Provides options to create different node types (Plan, Task, Memory, Terminal).
  * Zone is excluded since you cannot add a zone inside a zone.
  */
 export function CanvasContextMenu({ x, y, canvasX, canvasY, onClose }: CanvasContextMenuProps) {
@@ -20,6 +20,7 @@ export function CanvasContextMenu({ x, y, canvasX, canvasY, onClose }: CanvasCon
     createPlan,
     createTask,
     createMemory,
+    createTerminal,
     canCreateNodeType,
     getCannotCreateReason
   } = useCanvasNodeCreation()
@@ -67,13 +68,26 @@ export function CanvasContextMenu({ x, y, canvasX, canvasY, onClose }: CanvasCon
     }
   }
 
+  const handleAddTerminal = async () => {
+    try {
+      // Terminal default size: 600x400
+      const position = getNodePosition(600, 400)
+      await createTerminal({ position })
+      onClose()
+    } catch (err) {
+      console.error('Failed to create terminal:', err)
+    }
+  }
+
   const canCreatePlan = canCreateNodeType('plan')
   const canCreateTaskNode = canCreateNodeType('task')
   const canCreateMemoryNode = canCreateNodeType('memory')
+  const canCreateTerminalNode = canCreateNodeType('terminal')
 
   const planDisabledReason = getCannotCreateReason('plan')
   const taskDisabledReason = getCannotCreateReason('task')
   const memoryDisabledReason = getCannotCreateReason('memory')
+  const terminalDisabledReason = getCannotCreateReason('terminal')
 
   return (
     <ContextMenu x={x} y={y} onClose={onClose}>
@@ -106,7 +120,7 @@ export function CanvasContextMenu({ x, y, canvasX, canvasY, onClose }: CanvasCon
           onClick={() => handleAddMemory('Note')}
           disabled={!canCreateMemoryNode}
         >
-          <span className="mr-2">📝</span>
+          <span className="mr-2">N</span>
           Note
           {!canCreateMemoryNode && memoryDisabledReason && (
             <span className="ml-2 text-xs text-surface-400">({memoryDisabledReason})</span>
@@ -116,17 +130,30 @@ export function CanvasContextMenu({ x, y, canvasX, canvasY, onClose }: CanvasCon
           onClick={() => handleAddMemory('Repository')}
           disabled={!canCreateMemoryNode}
         >
-          <span className="mr-2">📁</span>
+          <span className="mr-2">R</span>
           Repository
         </ContextMenuItem>
         <ContextMenuItem 
           onClick={() => handleAddMemory('Memory')}
           disabled={!canCreateMemoryNode}
         >
-          <span className="mr-2">💭</span>
+          <span className="mr-2">M</span>
           Memory
         </ContextMenuItem>
       </ContextMenuSubMenu>
+      
+      <ContextMenuSeparator />
+      
+      <ContextMenuItem 
+        onClick={handleAddTerminal}
+        disabled={!canCreateTerminalNode}
+      >
+        <span className="mr-2">&gt;_</span>
+        Add Terminal
+        {!canCreateTerminalNode && terminalDisabledReason && (
+          <span className="ml-2 text-xs text-surface-400">({terminalDisabledReason})</span>
+        )}
+      </ContextMenuItem>
     </ContextMenu>
   )
 }

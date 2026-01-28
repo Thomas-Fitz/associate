@@ -16,7 +16,8 @@ export const NodeLabel = {
   Zone: 'Zone',
   Plan: 'Plan',
   Task: 'Task',
-  Memory: 'Memory'
+  Memory: 'Memory',
+  Terminal: 'Terminal'
 } as const
 
 export type NodeLabelType = (typeof NodeLabel)[keyof typeof NodeLabel]

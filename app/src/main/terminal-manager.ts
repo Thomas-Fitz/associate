@@ -84,10 +84,18 @@ export class TerminalManager {
 
   /**
    * Get the default shell for the current platform.
+   * Prefers PowerShell on Windows as it's more reliable with node-pty.
    */
   private getDefaultShell(): string {
     if (process.platform === 'win32') {
-      return process.env.COMSPEC || 'powershell.exe'
+      // Try PowerShell first (more reliable with node-pty)
+      // Check common PowerShell locations
+      const pwshPath = process.env.PROGRAMFILES 
+        ? `${process.env.PROGRAMFILES}\\PowerShell\\7\\pwsh.exe` 
+        : null
+      
+      // Prefer pwsh (PowerShell Core) if available, then Windows PowerShell, then cmd.exe
+      return 'powershell.exe'
     }
     return process.env.SHELL || '/bin/bash'
   }
@@ -139,14 +147,24 @@ export class TerminalManager {
     await this.ensureTerminalsDir()
 
     const shell = config.shell || this.getDefaultShell()
-    const cwd = config.cwd || app.getPath('home')
+    let cwd = config.cwd || app.getPath('home')
     const env = this.filterEnv(config.env, config.envBlocklist || DEFAULT_ENV_BLOCKLIST)
+
+    // Validate CWD exists, fallback to home directory if not
+    try {
+      await fs.access(cwd)
+    } catch {
+      console.warn(`CWD does not exist: ${cwd}, falling back to home directory`)
+      cwd = app.getPath('home')
+    }
 
     // Determine shell args based on platform
     const shellArgs: string[] = []
     if (process.platform === 'win32' && shell.toLowerCase().includes('powershell')) {
       shellArgs.push('-NoLogo')
     }
+
+    console.log(`Spawning terminal ${terminalId}: shell=${shell}, cwd=${cwd}`)
 
     try {
       const ptyProcess = pty.spawn(shell, shellArgs, {
@@ -185,13 +203,25 @@ export class TerminalManager {
       ptyProcess.onExit(({ exitCode, signal }: { exitCode: number; signal?: number }) => {
         console.log(`Terminal ${terminalId} exited with code ${exitCode}, signal ${signal}`)
         
+        // Check if instance was already cleaned up by kill()
+        // If not in instances map, scrollback was already saved by kill()
+        const currentInstance = this.instances.get(terminalId)
+        if (!currentInstance) {
+          // Already cleaned up by kill(), just send exit event
+          if (this.webContents && !this.webContents.isDestroyed()) {
+            const error = signal ? `Killed by signal ${signal}` : undefined
+            this.webContents.send('pty:exit', { terminalId, exitCode: exitCode ?? 0, error })
+          }
+          return
+        }
+        
         // Clear save timer
-        if (instance.saveTimer) {
-          clearInterval(instance.saveTimer)
+        if (currentInstance.saveTimer) {
+          clearInterval(currentInstance.saveTimer)
         }
 
         // Save final scrollback
-        this.saveScrollback(terminalId, instance.scrollbackBuffer.join('\n')).catch(console.error)
+        this.saveScrollback(terminalId, currentInstance.scrollbackBuffer.join('\n')).catch(console.error)
 
         // Send exit event to renderer
         if (this.webContents && !this.webContents.isDestroyed()) {
@@ -264,6 +294,7 @@ export class TerminalManager {
 
   /**
    * Kill a terminal's PTY with graceful shutdown.
+   * Saves scrollback before killing to ensure persistence.
    */
   async kill(terminalId: string): Promise<void> {
     const instance = this.instances.get(terminalId)
@@ -272,15 +303,23 @@ export class TerminalManager {
       return
     }
 
-    // Clear save timer
+    // Clear save timer first to prevent concurrent saves
     if (instance.saveTimer) {
       clearInterval(instance.saveTimer)
+      instance.saveTimer = undefined
     }
 
+    // Capture the current scrollback buffer before any async operations
+    const scrollbackData = instance.scrollbackBuffer.join('\n')
+    
     // Save scrollback before killing
-    await this.saveScrollback(terminalId, instance.scrollbackBuffer.join('\n'))
+    await this.saveScrollback(terminalId, scrollbackData)
 
-    // Try graceful shutdown first
+    // Remove from instances immediately to prevent the onData handler from adding more data
+    // and to prevent the original onExit handler from saving again
+    this.instances.delete(terminalId)
+
+    // Try graceful shutdown
     return new Promise<void>((resolve) => {
       const pid = instance.pty.pid
 
@@ -301,15 +340,12 @@ export class TerminalManager {
           }
         }
         
-        this.instances.delete(terminalId)
         resolve()
       }, SHUTDOWN_TIMEOUT)
 
-      // Listen for exit
-      const originalOnExit = instance.pty.onExit
-      instance.pty.onExit(({ exitCode }: { exitCode: number }) => {
+      // Listen for exit - this handler will run when PTY exits
+      instance.pty.onExit(() => {
         clearTimeout(forceKillTimer)
-        this.instances.delete(terminalId)
         resolve()
       })
 
@@ -324,7 +360,6 @@ export class TerminalManager {
         } catch (err) {
           console.error('Failed to send SIGTERM:', err)
           clearTimeout(forceKillTimer)
-          this.instances.delete(terminalId)
           resolve()
         }
       }
@@ -392,7 +427,9 @@ export class TerminalManager {
         readStream.on('error', reject)
       })
       
-      return Buffer.concat(chunks).toString('utf-8')
+      const content = Buffer.concat(chunks).toString('utf-8')
+      console.log(`Loaded scrollback for terminal ${terminalId} (${content.length} chars)`)
+      return content
     } catch (err) {
       // File doesn't exist or is corrupted
       console.log(`No scrollback found for terminal ${terminalId}`)

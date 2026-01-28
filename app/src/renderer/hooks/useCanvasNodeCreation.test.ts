@@ -2,7 +2,18 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useCanvasNodeCreation } from './useCanvasNodeCreation'
 import { useAppStore } from '../stores/appStore'
-import type { PlanInZone, TaskInPlan, MemoryInZone } from '../types'
+import type { PlanInZone, TaskInPlan, MemoryInZone, TerminalInZone } from '../types'
+
+// Mock window.electronAPI for terminal creation
+const mockPtyCreate = vi.fn().mockResolvedValue(undefined)
+Object.defineProperty(window, 'electronAPI', {
+  value: {
+    pty: {
+      create: mockPtyCreate
+    }
+  },
+  writable: true
+})
 
 // Mock the database hook
 vi.mock('./useDatabase', () => ({
@@ -45,6 +56,17 @@ vi.mock('./useDatabase', () => ({
         updatedAt: '2024-01-01T00:00:00Z',
         ui_x: 100,
         ui_y: 100
+      })
+    },
+    terminals: {
+      create: vi.fn().mockResolvedValue({
+        id: 'terminal-123',
+        name: 'Terminal 1',
+        config: {},
+        state: { status: 'disconnected' },
+        metadata: { ui_x: 100, ui_y: 100, ui_width: 600, ui_height: 400 },
+        createdAt: '2024-01-01T00:00:00Z',
+        updatedAt: '2024-01-01T00:00:00Z'
       })
     }
   })
@@ -473,6 +495,173 @@ describe('useCanvasNodeCreation', () => {
       
       expect(result.current.hasSelectedZone).toBe(false)
       expect(result.current.hasSelectedPlan).toBe(true)
+    })
+  })
+
+  describe('terminal operations', () => {
+    it('should return false for terminal when no zone is selected', () => {
+      const { result } = renderHook(() => useCanvasNodeCreation())
+      expect(result.current.canCreateNodeType('terminal')).toBe(false)
+    })
+
+    it('should return true for terminal when a zone is selected', () => {
+      useAppStore.setState({
+        selectedZone: {
+          id: 'zone-1',
+          name: 'Test Zone',
+          description: '',
+          metadata: {},
+          tags: [],
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+          planCount: 0,
+          taskCount: 0,
+          memoryCount: 0,
+          terminalCount: 0,
+          plans: [],
+          memories: [],
+          terminals: []
+        }
+      })
+
+      const { result } = renderHook(() => useCanvasNodeCreation())
+      expect(result.current.canCreateNodeType('terminal')).toBe(true)
+    })
+
+    it('should return "No zone selected" for terminal when no zone is selected', () => {
+      const { result } = renderHook(() => useCanvasNodeCreation())
+      expect(result.current.getCannotCreateReason('terminal')).toBe('No zone selected')
+    })
+
+    it('should return null for terminal when zone is selected', () => {
+      useAppStore.setState({
+        selectedZone: {
+          id: 'zone-1',
+          name: 'Test Zone',
+          description: '',
+          metadata: {},
+          tags: [],
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+          planCount: 0,
+          taskCount: 0,
+          memoryCount: 0,
+          terminalCount: 0,
+          plans: [],
+          memories: [],
+          terminals: []
+        }
+      })
+
+      const { result } = renderHook(() => useCanvasNodeCreation())
+      expect(result.current.getCannotCreateReason('terminal')).toBeNull()
+    })
+  })
+
+  describe('createTerminal', () => {
+    beforeEach(() => {
+      mockPtyCreate.mockClear()
+    })
+
+    it('should return null when no zone is selected', async () => {
+      const { result } = renderHook(() => useCanvasNodeCreation())
+      
+      const terminal = await result.current.createTerminal({ position: { x: 100, y: 100 } })
+      
+      expect(terminal).toBeNull()
+    })
+
+    it('should create a terminal when zone is selected', async () => {
+      useAppStore.setState({
+        selectedZone: {
+          id: 'zone-1',
+          name: 'Test Zone',
+          description: '',
+          metadata: {},
+          tags: [],
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+          planCount: 0,
+          taskCount: 0,
+          memoryCount: 0,
+          terminalCount: 0,
+          plans: [],
+          memories: [],
+          terminals: []
+        }
+      })
+
+      const { result } = renderHook(() => useCanvasNodeCreation())
+      
+      const terminalRef: { current: TerminalInZone | null } = { current: null }
+      await act(async () => {
+        terminalRef.current = await result.current.createTerminal({ position: { x: 100, y: 100 } })
+      })
+      
+      expect(terminalRef.current).not.toBeNull()
+      expect(terminalRef.current?.id).toBe('terminal-123')
+      expect(terminalRef.current?.name).toBe('Terminal 1')
+    })
+
+    it('should update selectedZone with new terminal', async () => {
+      useAppStore.setState({
+        selectedZone: {
+          id: 'zone-1',
+          name: 'Test Zone',
+          description: '',
+          metadata: {},
+          tags: [],
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+          planCount: 0,
+          taskCount: 0,
+          memoryCount: 0,
+          terminalCount: 0,
+          plans: [],
+          memories: [],
+          terminals: []
+        }
+      })
+
+      const { result } = renderHook(() => useCanvasNodeCreation())
+      
+      await act(async () => {
+        await result.current.createTerminal({ position: { x: 100, y: 100 } })
+      })
+      
+      const state = useAppStore.getState()
+      expect(state.selectedZone?.terminals.length).toBe(1)
+      expect(state.selectedZone?.terminalCount).toBe(1)
+    })
+
+    it('should spawn PTY after creating terminal in database', async () => {
+      useAppStore.setState({
+        selectedZone: {
+          id: 'zone-1',
+          name: 'Test Zone',
+          description: '',
+          metadata: {},
+          tags: [],
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+          planCount: 0,
+          taskCount: 0,
+          memoryCount: 0,
+          terminalCount: 0,
+          plans: [],
+          memories: [],
+          terminals: []
+        }
+      })
+
+      const { result } = renderHook(() => useCanvasNodeCreation())
+      
+      await act(async () => {
+        await result.current.createTerminal({ position: { x: 100, y: 100 } })
+      })
+      
+      // Verify PTY was spawned
+      expect(mockPtyCreate).toHaveBeenCalledWith('terminal-123', {})
     })
   })
 })

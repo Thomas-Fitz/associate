@@ -239,7 +239,7 @@ export function useTerminal(
         xtermRef.current.write(scrollback)
       }
 
-      // Check if already running
+      // Check if already running - this also syncs the connected state
       const isRunning = await ipcRef.current.checkIsRunning()
       
       // Auto-connect if enabled and not already running
@@ -248,6 +248,17 @@ export function useTerminal(
           await ipcRef.current.connect()
         } catch (err) {
           console.error('Failed to auto-connect terminal:', err)
+          return // Don't try to resize if connect failed
+        }
+      }
+      
+      // Send initial resize now that PTY is ready
+      // (resize events during xterm init were ignored because PTY wasn't connected yet)
+      if (xtermRef.current && fitAddonRef.current) {
+        fitAddonRef.current.fit()
+        const { cols, rows } = xtermRef.current
+        if (cols && rows) {
+          ipcRef.current.resize(cols, rows)
         }
       }
     }

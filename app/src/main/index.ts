@@ -6,6 +6,7 @@ import { setupPtyHandlers } from './terminal-pty-handlers'
 import { terminalManager } from './terminal-manager'
 
 let mainWindow: BrowserWindow | null = null
+let isQuitting = false
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -78,13 +79,36 @@ app.on('window-all-closed', () => {
 })
 
 // Clean up database connection and terminals on quit
+// Note: Electron doesn't await async event handlers, so we must use preventDefault
+// and manually re-trigger quit after async cleanup completes
 app.on('before-quit', async (event) => {
+  // Prevent re-entrant cleanup if we're already quitting
+  if (isQuitting) {
+    return
+  }
+  
   const runningCount = terminalManager.getRunningCount()
   
   if (runningCount > 0) {
+    // Prevent the quit to allow async cleanup
+    event.preventDefault()
+    isQuitting = true
+    
     console.log(`Cleaning up ${runningCount} running terminals...`)
     await terminalManager.killAll()
+    
+    await closeDatabase()
+    
+    // Now quit for real
+    app.quit()
+  } else {
+    // No terminals to clean up, just close database
+    // Still need to prevent default and re-quit to ensure database closes
+    event.preventDefault()
+    isQuitting = true
+    
+    await closeDatabase()
+    
+    app.quit()
   }
-  
-  await closeDatabase()
 })

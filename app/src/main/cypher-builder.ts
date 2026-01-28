@@ -539,11 +539,15 @@ export const TerminalQueries = {
 
   /**
    * Count terminals in a zone (for auto-naming).
+   * Uses OPTIONAL MATCH + WITH pattern to ensure AGE compatibility.
+   * Note: Must include z in WITH clause for AGE to parse correctly.
    */
   countInZone(zoneId: string): string {
     return `
-      MATCH (term:${NodeLabel.Terminal})-[:${RelationType.BelongsTo}]->(z:${NodeLabel.Zone} {id: '${escapeCypherString(zoneId)}'})
-      RETURN count(term) as terminal_count
+      MATCH (z:${NodeLabel.Zone} {id: '${escapeCypherString(zoneId)}'})
+      OPTIONAL MATCH (term:${NodeLabel.Terminal})-[:${RelationType.BelongsTo}]->(z)
+      WITH z, count(term) as terminal_count
+      RETURN terminal_count
     `
   },
 

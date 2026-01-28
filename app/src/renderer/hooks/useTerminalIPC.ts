@@ -26,6 +26,9 @@ export function useTerminalIPC(terminalId: string, config: TerminalConfig = {}) 
   const [state, setState] = useState<TerminalState>({ status: 'disconnected' })
   const [isConnecting, setIsConnecting] = useState(false)
   
+  // Track if PTY is ready to receive commands
+  const isConnectedRef = useRef(false)
+  
   // Callback refs for data and exit handlers
   const onDataRef = useRef<((data: string) => void) | null>(null)
   const onExitRef = useRef<((exitCode: number, error?: string) => void) | null>(null)
@@ -58,6 +61,7 @@ export function useTerminalIPC(terminalId: string, config: TerminalConfig = {}) 
 
     const handleExit = (payload: PtyExitEvent) => {
       if (payload.terminalId === terminalId) {
+        isConnectedRef.current = false
         const newState: TerminalState = {
           status: payload.error ? 'error' : 'stopped',
           exitCode: payload.exitCode,
@@ -86,8 +90,10 @@ export function useTerminalIPC(terminalId: string, config: TerminalConfig = {}) 
     setIsConnecting(true)
     try {
       await window.electronAPI.pty.create(terminalId, configRef.current)
+      isConnectedRef.current = true
       setState({ status: 'running' })
     } catch (err) {
+      isConnectedRef.current = false
       setState({
         status: 'error',
         error: err instanceof Error ? err.message : 'Failed to connect'
@@ -103,6 +109,7 @@ export function useTerminalIPC(terminalId: string, config: TerminalConfig = {}) 
    */
   const disconnect = useCallback(async (): Promise<void> => {
     try {
+      isConnectedRef.current = false
       await window.electronAPI.pty.kill(terminalId)
       setState({ status: 'disconnected' })
     } catch (err) {
@@ -111,16 +118,26 @@ export function useTerminalIPC(terminalId: string, config: TerminalConfig = {}) 
   }, [terminalId])
 
   /**
-   * Write data to the PTY
+   * Write data to the PTY.
+   * Silently ignores writes if PTY is not connected (prevents race conditions).
    */
   const write = useCallback((data: string): void => {
+    if (!isConnectedRef.current) {
+      // PTY not ready yet, ignore write
+      return
+    }
     window.electronAPI.pty.write(terminalId, data)
   }, [terminalId])
 
   /**
-   * Resize the PTY
+   * Resize the PTY.
+   * Silently ignores resizes if PTY is not connected (prevents race conditions).
    */
   const resize = useCallback((cols: number, rows: number): void => {
+    if (!isConnectedRef.current) {
+      // PTY not ready yet, ignore resize
+      return
+    }
     window.electronAPI.pty.resize(terminalId, cols, rows)
   }, [terminalId])
 
@@ -137,15 +154,31 @@ export function useTerminalIPC(terminalId: string, config: TerminalConfig = {}) 
   }, [terminalId])
 
   /**
-   * Check if the PTY is currently running
+   * Check if the PTY is currently running.
+   * Also syncs the isConnectedRef with the actual PTY state.
    */
   const checkIsRunning = useCallback(async (): Promise<boolean> => {
     try {
-      return await window.electronAPI.pty.isRunning(terminalId)
+      const running = await window.electronAPI.pty.isRunning(terminalId)
+      // Sync our connected state with the actual PTY state
+      isConnectedRef.current = running
+      if (running) {
+        setState({ status: 'running' })
+      }
+      return running
     } catch (err) {
+      isConnectedRef.current = false
       return false
     }
   }, [terminalId])
+
+  /**
+   * Mark the terminal as connected (used when PTY is already running on mount).
+   */
+  const markConnected = useCallback((): void => {
+    isConnectedRef.current = true
+    setState({ status: 'running' })
+  }, [])
 
   // Return a memoized object to prevent unnecessary re-renders
   return useMemo(() => ({
@@ -157,7 +190,8 @@ export function useTerminalIPC(terminalId: string, config: TerminalConfig = {}) 
     resize,
     loadScrollback,
     checkIsRunning,
+    markConnected,
     setOnData,
     setOnExit
-  }), [state, isConnecting, connect, disconnect, write, resize, loadScrollback, checkIsRunning, setOnData, setOnExit])
+  }), [state, isConnecting, connect, disconnect, write, resize, loadScrollback, checkIsRunning, markConnected, setOnData, setOnExit])
 }

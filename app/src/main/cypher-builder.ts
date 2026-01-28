@@ -67,15 +67,20 @@ export const ZoneQueries = {
 
   /**
    * Get all plans in a zone with their tasks.
+   * Note: We filter out null tasks from the collect to avoid empty wrapper objects.
+   * Tasks are ordered by their position on the PART_OF relationship.
    */
   getPlansWithTasks(zoneId: string): string {
     return `
       MATCH (p:${NodeLabel.Plan})-[:${RelationType.BelongsTo}]->(z:${NodeLabel.Zone} {id: '${escapeCypherString(zoneId)}'})
-      OPTIONAL MATCH (t:${NodeLabel.Task})-[:${RelationType.PartOf}]->(p)
+      OPTIONAL MATCH (t:${NodeLabel.Task})-[r:${RelationType.PartOf}]->(p)
       OPTIONAL MATCH (t)-[:${RelationType.DependsOn}]->(dep:${NodeLabel.Task})
       OPTIONAL MATCH (t)-[:${RelationType.Blocks}]->(blk:${NodeLabel.Task})
-      WITH p, t, collect(DISTINCT dep.id) as depends_on, collect(DISTINCT blk.id) as blocks
-      RETURN p, collect({task: t, depends_on: depends_on, blocks: blocks}) as tasks
+      WITH p, t, r, collect(DISTINCT dep.id) as depends_on, collect(DISTINCT blk.id) as blocks
+      ORDER BY r.${RelationProperty.Position}
+      WITH p, CASE WHEN t IS NOT NULL THEN {task: t, depends_on: depends_on, blocks: blocks} ELSE NULL END as task_obj
+      WITH p, collect(task_obj) as all_tasks
+      RETURN p, [x IN all_tasks WHERE x IS NOT NULL] as tasks
       ORDER BY p.updated_at DESC
     `
   },

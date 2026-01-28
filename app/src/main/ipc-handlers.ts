@@ -121,15 +121,6 @@ function rowToTaskInPlan(row: Record<string, unknown>): TaskInPlan {
   const dependsOn = parseAGArray(row.depends_on)
   const blocks = parseAGArray(row.blocks)
 
-  console.log('rowToTaskInPlan:', {
-    taskId: task.id,
-    position,
-    dependsOn,
-    blocks,
-    rawDepsOn: row.depends_on,
-    rawBlocks: row.blocks
-  })
-
   return {
     ...task,
     position,
@@ -200,8 +191,6 @@ export function setupIpcHandlers(): void {
    * List plans with optional filtering by status and search term.
    */
   ipcMain.handle('db:plans:list', async (_event, options?: ListPlansOptions) => {
-    console.log('db:plans:list called with options:', options)
-
     const query = PlanQueries.list({
       status: options?.status,
       search: options?.search,
@@ -209,19 +198,14 @@ export function setupIpcHandlers(): void {
       offset: options?.offset
     })
 
-    console.log('Executing query:', query)
     const rows = await executeCypher<Record<string, unknown>>(query, 'p agtype, task_count agtype')
-    console.log('Query returned rows:', rows.length, rows)
 
     const plans = rows.map(row => {
-      console.log('Processing row:', row)
       const plan = rowToPlan(row)
       plan.taskCount = parseTaskCount(row.task_count)
-      console.log('Converted to plan:', plan)
       return plan
     })
 
-    console.log('Returning plans:', plans)
     return plans
   })
 
@@ -522,16 +506,12 @@ export function setupIpcHandlers(): void {
    * List zones with optional search filter.
    */
   ipcMain.handle('db:zones:list', async (_event, options?: { search?: string; limit?: number }): Promise<Zone[]> => {
-    console.log('db:zones:list called with options:', options)
-
     const query = ZoneQueries.list(options)
-    console.log('Executing query:', query)
     
     const rows = await executeCypher<Record<string, unknown>>(
       query,
       'z agtype, plan_count agtype, task_count agtype, memory_count agtype'
     )
-    console.log('Query returned rows:', rows.length)
 
     return rows.map(row => rowToZone(row))
   })
@@ -587,23 +567,51 @@ export function setupIpcHandlers(): void {
       const planProps = parseAGTypeProperties(row.p)
       const planMetadata = parseMetadata(planProps.metadata)
       
-      // Parse tasks array
+      // Parse tasks array - AGE can return this in multiple formats
+      // AGE returns vertex objects with ::vertex suffix that needs to be stripped
       let tasksData: unknown[] = []
-      if (typeof row.tasks === 'string') {
+      const rawTasks = row.tasks
+      
+      if (typeof rawTasks === 'string') {
         try {
-          tasksData = JSON.parse(row.tasks) || []
+          // AGE returns vertex objects with ::vertex suffix embedded in the JSON string
+          // We need to strip these out before parsing
+          const cleanedJson = rawTasks.replace(/}::vertex/g, '}')
+          tasksData = JSON.parse(cleanedJson) || []
         } catch {
           tasksData = []
         }
-      } else if (Array.isArray(row.tasks)) {
-        tasksData = row.tasks
+      } else if (Array.isArray(rawTasks)) {
+        tasksData = rawTasks
+      } else if (rawTasks && typeof rawTasks === 'object') {
+        // AGE might return an object wrapper with elements array
+        const maybeWrapper = rawTasks as Record<string, unknown>
+        if (Array.isArray(maybeWrapper.elements)) {
+          tasksData = maybeWrapper.elements
+        } else if (Array.isArray(maybeWrapper.value)) {
+          tasksData = maybeWrapper.value
+        }
       }
 
       const tasks: TaskInZone[] = tasksData
-        .filter((t: unknown) => t && typeof t === 'object' && (t as Record<string, unknown>).task)
+        .filter((t: unknown) => {
+          if (!t || typeof t !== 'object') return false
+          const obj = t as Record<string, unknown>
+          // Accept if it has a 'task' property with a value, or if it looks like a task directly (has 'id' and 'content')
+          const hasTaskProp = obj.task && typeof obj.task === 'object'
+          const isTaskDirectly = obj.id && obj.content !== undefined
+          return hasTaskProp || isTaskDirectly
+        })
         .map((t: unknown) => {
           const taskObj = t as Record<string, unknown>
-          const taskProps = parseAGTypeProperties(taskObj.task)
+          // Handle both {task: {...}} wrapper and direct task object
+          // The task property from AGE is a vertex object: {id: number, label: string, properties: {...}}
+          const taskVertex = taskObj.task && typeof taskObj.task === 'object' ? taskObj.task : taskObj
+          const vertexObj = taskVertex as Record<string, unknown>
+          // Extract properties from vertex object if present, otherwise use the object directly
+          const taskProps = vertexObj.properties && typeof vertexObj.properties === 'object' 
+            ? vertexObj.properties as Record<string, unknown>
+            : parseAGTypeProperties(taskVertex)
           const taskMetadata = parseMetadata(taskProps.metadata)
           
           return {
@@ -621,8 +629,8 @@ export function setupIpcHandlers(): void {
             createdAt: String(taskProps.created_at || taskProps.createdAt || ''),
             updatedAt: String(taskProps.updated_at || taskProps.updatedAt || ''),
             planId: String(planProps.id || ''),
-            dependsOn: parseAGArray(taskObj.depends_on),
-            blocks: parseAGArray(taskObj.blocks)
+            dependsOn: parseAGArray(taskObj.depends_on || (taskSource as Record<string, unknown>).depends_on),
+            blocks: parseAGArray(taskObj.blocks || (taskSource as Record<string, unknown>).blocks)
           }
         })
 

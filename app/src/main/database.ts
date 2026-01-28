@@ -87,32 +87,26 @@ export function tagsToCypherList(tags: string[]): string {
 // Parse AGE vertex/edge result
 // AGE returns vertices like: {"id": 12345, "label": "Memory", "properties": {"id": "abc", ...}}::vertex
 export function parseAGTypeProperties(result: unknown): Record<string, unknown> {
-  console.log('parseAGTypeProperties input:', typeof result, result)
-  
   if (!result) return {}
   
   // AGE returns results as strings that need parsing
   if (typeof result === 'string') {
     try {
       // Remove the ::vertex or ::edge suffix
-      let jsonStr = result.replace(/::(?:vertex|edge)$/, '').trim()
+      const jsonStr = result.replace(/::(?:vertex|edge)$/, '').trim()
       
       // If it's empty after trimming, return empty object
       if (!jsonStr) return {}
       
-      console.log('Parsing JSON string:', jsonStr)
       const wrapper = JSON.parse(jsonStr) as { properties?: Record<string, unknown> }
-      console.log('Parsed wrapper:', wrapper)
       return wrapper.properties || wrapper
-    } catch (err) {
-      console.error('Failed to parse AGE result:', result, err)
+    } catch {
       // Fall through to return empty object
     }
   }
   
   if (typeof result === 'object' && result !== null) {
     const obj = result as Record<string, unknown>
-    console.log('Result is object:', obj)
     return obj.properties ? (obj.properties as Record<string, unknown>) : obj
   }
   
@@ -129,9 +123,7 @@ export async function executeCypher<T = unknown>(
     await client.query('SET search_path = ag_catalog, "$user", public;')
     
     const sql = `SELECT * FROM ag_catalog.cypher('associate', $$ ${query} $$) AS (${returnColumns});`
-    console.log('Executing SQL:', sql)
     const result = await client.query(sql)
-    console.log('Raw result:', JSON.stringify(result.rows, null, 2))
     
     return result.rows as T[]
   } finally {

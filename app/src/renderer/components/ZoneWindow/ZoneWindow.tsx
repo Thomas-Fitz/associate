@@ -51,9 +51,25 @@ const TASK_DEFAULT_HEIGHT = 120
 function createNodesFromZone(zone: ZoneWithContents): ZoneNode[] {
   const nodes: ZoneNode[] = []
 
+  // Constants for task auto-layout within plans
+  const TASK_START_X = 180 // Starting X position (after description panel)
+  const TASK_START_Y = 60  // Starting Y position (below header)
+  const TASK_GAP = 20      // Gap between tasks
+  const PADDING_RIGHT = 20 // Padding on the right side
+
   // Add Plan group nodes
   zone.plans.forEach((plan) => {
-    const width = (plan.metadata.ui_width as number) || PLAN_DEFAULT_WIDTH
+    // Count tasks without explicit positions (they'll be auto-laid out)
+    const tasksWithoutPos = plan.tasks.filter(t => 
+      t.metadata.ui_x === undefined || t.metadata.ui_y === undefined
+    ).length
+    
+    // Calculate minimum width needed for auto-laid-out tasks
+    const autoLayoutWidth = tasksWithoutPos > 0 
+      ? TASK_START_X + tasksWithoutPos * (TASK_DEFAULT_WIDTH + TASK_GAP) + PADDING_RIGHT
+      : PLAN_DEFAULT_WIDTH
+    
+    const width = (plan.metadata.ui_width as number) || Math.max(PLAN_DEFAULT_WIDTH, autoLayoutWidth)
     const height = (plan.metadata.ui_height as number) || PLAN_DEFAULT_HEIGHT
 
     nodes.push({
@@ -76,16 +92,25 @@ function createNodesFromZone(zone: ZoneWithContents): ZoneNode[] {
     } as PlanNodeType)
 
     // Add tasks as children of this plan
-    plan.tasks.forEach((task) => {
+    // Layout tasks horizontally (left to right) if they don't have position metadata
+    
+    plan.tasks.forEach((task, index) => {
       const taskWidth = (task.metadata.ui_width as number) || TASK_DEFAULT_WIDTH
       const taskHeight = (task.metadata.ui_height as number) || TASK_DEFAULT_HEIGHT
+      
+      // Check if task has explicit position metadata
+      const hasPosition = task.metadata.ui_x !== undefined && task.metadata.ui_y !== undefined
+      
+      // Calculate auto-layout position (horizontal, left to right)
+      const autoX = TASK_START_X + index * (TASK_DEFAULT_WIDTH + TASK_GAP)
+      const autoY = TASK_START_Y
 
       nodes.push({
         id: task.id,
         type: 'zoneTask',
         position: {
-          x: (task.metadata.ui_x as number) ?? 180,
-          y: (task.metadata.ui_y as number) ?? 60
+          x: hasPosition ? (task.metadata.ui_x as number) : autoX,
+          y: hasPosition ? (task.metadata.ui_y as number) : autoY
         },
         parentId: plan.id,
         extent: undefined,

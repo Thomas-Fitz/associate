@@ -156,9 +156,23 @@ func (c *Client) Graph() string {
 	return c.graphName
 }
 
-// BeginTx starts a new transaction
+// BeginTx starts a new transaction and ensures AGE search_path is set.
+// This is necessary because connections from the pool may not have the
+// search_path configured, which causes "function cypher does not exist" errors.
 func (c *Client) BeginTx(ctx context.Context) (*sql.Tx, error) {
-	return c.db.BeginTx(ctx, nil)
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set the AGE search path for this transaction
+	_, err = tx.ExecContext(ctx, "SET search_path = ag_catalog, \"$user\", public")
+	if err != nil {
+		tx.Rollback()
+		return nil, fmt.Errorf("failed to set AGE search path: %w", err)
+	}
+
+	return tx, nil
 }
 
 // initAGE initializes the AGE extension and creates the graph if needed

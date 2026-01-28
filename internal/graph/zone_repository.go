@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strconv"
 	"strings"
@@ -29,6 +30,21 @@ func (r *ZoneRepository) Add(ctx context.Context, zone models.Zone) (*models.Zon
 	}
 	defer tx.Rollback()
 
+	created, err := r.addWithTx(ctx, tx, zone)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit: %w", err)
+	}
+
+	return created, nil
+}
+
+// addWithTx creates a new zone using an existing transaction.
+// This is used internally when zone creation needs to be part of a larger transaction.
+func (r *ZoneRepository) addWithTx(ctx context.Context, tx *sql.Tx, zone models.Zone) (*models.Zone, error) {
 	if zone.ID == "" {
 		zone.ID = uuid.New().String()
 	}
@@ -65,11 +81,33 @@ func (r *ZoneRepository) Add(ctx context.Context, zone models.Zone) (*models.Zon
 	}
 	rows.Close()
 
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("failed to commit: %w", err)
+	return &zone, nil
+}
+
+// AddWithTx creates a new zone using an existing transaction.
+// Use this when you need zone creation to be part of a larger transaction.
+func (r *ZoneRepository) AddWithTx(ctx context.Context, tx *sql.Tx, zone models.Zone) (*models.Zone, error) {
+	return r.addWithTx(ctx, tx, zone)
+}
+
+// ExistsWithTx checks if a zone exists using an existing transaction.
+func (r *ZoneRepository) ExistsWithTx(ctx context.Context, tx *sql.Tx, id string) (bool, error) {
+	cypher := fmt.Sprintf(`MATCH (z:Zone {id: '%s'}) RETURN count(z) > 0`, EscapeCypherString(id))
+	rows, err := r.client.execCypher(ctx, tx, cypher, "exists agtype")
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		return false, nil
 	}
 
-	return &zone, nil
+	var existsStr string
+	if err := rows.Scan(&existsStr); err != nil {
+		return false, err
+	}
+	return strings.Trim(existsStr, "\"") == "true", nil
 }
 
 // GetByID retrieves a zone by ID

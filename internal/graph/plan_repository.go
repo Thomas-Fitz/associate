@@ -46,14 +46,14 @@ func (r *PlanRepository) AddWithZone(ctx context.Context, plan models.Plan, zone
 
 	// If no zone specified, create one with the plan's name
 	if zoneID == "" {
-		newZone, err := r.zoneRepo.Add(ctx, models.Zone{Name: plan.Name})
+		newZone, err := r.zoneRepo.AddWithTx(ctx, tx, models.Zone{Name: plan.Name})
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to auto-create zone: %w", err)
 		}
 		zoneID = newZone.ID
 	} else {
 		// Verify zone exists
-		exists, err := r.zoneRepo.Exists(ctx, zoneID)
+		exists, err := r.zoneRepo.ExistsWithTx(ctx, tx, zoneID)
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to verify zone: %w", err)
 		}

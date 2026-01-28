@@ -166,6 +166,129 @@ func TestPlanRepository_CRUD(t *testing.T) {
 	})
 }
 
+// TestPlanWithAutoZone tests creating a plan with auto-zone creation
+func TestPlanWithAutoZone(t *testing.T) {
+	client, ctx, cancel := getTestClient(t)
+	defer cancel()
+	defer client.Close(ctx)
+
+	planRepo := NewPlanRepository(client)
+	zoneRepo := NewZoneRepository(client)
+
+	planName := "Auto Zone Test Plan"
+	testID := "test-plan-autozone-" + time.Now().Format("20060102-150405-000")
+	var zoneID string
+	defer func() {
+		cleanupTestData(ctx, client, testID)
+		if zoneID != "" {
+			cleanupTestData(ctx, client, zoneID)
+		}
+	}()
+
+	// Test creating plan without zone_id - should auto-create zone
+	t.Run("CreatePlanWithAutoZone", func(t *testing.T) {
+		plan := models.Plan{
+			ID:          testID,
+			Name:        planName,
+			Description: "A test plan that auto-creates a zone",
+			Status:      models.PlanStatusActive,
+		}
+
+		created, createdZoneID, err := planRepo.AddWithZone(ctx, plan, "", nil)
+		if err != nil {
+			t.Fatalf("Failed to create plan with auto-zone: %v", err)
+		}
+
+		zoneID = createdZoneID
+
+		if created.ID != testID {
+			t.Errorf("Expected plan ID %s, got %s", testID, created.ID)
+		}
+		if zoneID == "" {
+			t.Error("Expected zone ID to be created, got empty string")
+		}
+
+		t.Logf("Created plan: %s with auto-created zone: %s", created.ID, zoneID)
+	})
+
+	// Verify zone was created with the plan's name
+	t.Run("VerifyZoneCreated", func(t *testing.T) {
+		zone, err := zoneRepo.GetByID(ctx, zoneID)
+		if err != nil {
+			t.Fatalf("Failed to get zone: %v", err)
+		}
+		if zone == nil {
+			t.Fatal("Zone not found")
+		}
+
+		if zone.Name != planName {
+			t.Errorf("Expected zone name '%s', got '%s'", planName, zone.Name)
+		}
+		t.Logf("Zone created with name: %s", zone.Name)
+	})
+
+	// Verify plan is linked to zone
+	t.Run("VerifyPlanLinkedToZone", func(t *testing.T) {
+		linkedZoneID, err := planRepo.GetZoneID(ctx, testID)
+		if err != nil {
+			t.Fatalf("Failed to get plan's zone ID: %v", err)
+		}
+
+		if linkedZoneID != zoneID {
+			t.Errorf("Expected plan linked to zone %s, got %s", zoneID, linkedZoneID)
+		}
+		t.Logf("Plan is correctly linked to zone: %s", linkedZoneID)
+	})
+}
+
+// TestPlanWithExistingZone tests creating a plan with an existing zone
+func TestPlanWithExistingZone(t *testing.T) {
+	client, ctx, cancel := getTestClient(t)
+	defer cancel()
+	defer client.Close(ctx)
+
+	planRepo := NewPlanRepository(client)
+	zoneRepo := NewZoneRepository(client)
+
+	zoneID := "test-zone-existing-" + time.Now().Format("20060102-150405-000")
+	planID := "test-plan-existing-zone-" + time.Now().Format("20060102-150405-000")
+	defer cleanupTestData(ctx, client, zoneID, planID)
+
+	// Create zone first
+	t.Run("CreateZone", func(t *testing.T) {
+		zone := models.Zone{
+			ID:          zoneID,
+			Name:        "Existing Zone",
+			Description: "A pre-existing zone",
+		}
+		created, err := zoneRepo.Add(ctx, zone)
+		if err != nil {
+			t.Fatalf("Failed to create zone: %v", err)
+		}
+		t.Logf("Created zone: %s", created.ID)
+	})
+
+	// Create plan with existing zone
+	t.Run("CreatePlanWithExistingZone", func(t *testing.T) {
+		plan := models.Plan{
+			ID:          planID,
+			Name:        "Plan in Existing Zone",
+			Description: "A test plan in a pre-existing zone",
+			Status:      models.PlanStatusActive,
+		}
+
+		created, linkedZoneID, err := planRepo.AddWithZone(ctx, plan, zoneID, nil)
+		if err != nil {
+			t.Fatalf("Failed to create plan with existing zone: %v", err)
+		}
+
+		if linkedZoneID != zoneID {
+			t.Errorf("Expected plan linked to zone %s, got %s", zoneID, linkedZoneID)
+		}
+		t.Logf("Created plan: %s linked to existing zone: %s", created.ID, linkedZoneID)
+	})
+}
+
 // TestTaskRepository_CRUD tests basic Task CRUD operations
 func TestTaskRepository_CRUD(t *testing.T) {
 	client, ctx, cancel := getTestClient(t)

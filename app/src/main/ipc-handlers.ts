@@ -1018,9 +1018,9 @@ export function setupIpcHandlers(): void {
       let name = options.name
       if (!name) {
         const countQuery = TerminalQueries.countInZone(options.zoneId)
-        const countRows = await executeCypherInTransaction<{ count: unknown }>(client, countQuery, 'count agtype')
-        const count = typeof countRows[0]?.count === 'number' ? countRows[0].count : 
-                      typeof countRows[0]?.count === 'string' ? parseInt(countRows[0].count, 10) : 0
+        const countRows = await executeCypherInTransaction<{ terminal_count: unknown }>(client, countQuery, 'terminal_count agtype')
+        const count = typeof countRows[0]?.terminal_count === 'number' ? countRows[0].terminal_count : 
+                      typeof countRows[0]?.terminal_count === 'string' ? parseInt(countRows[0].terminal_count, 10) : 0
         name = `Terminal ${count + 1}`
       }
 

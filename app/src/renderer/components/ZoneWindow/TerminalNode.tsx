@@ -89,9 +89,15 @@ function TerminalNodeInner({ data, selected }: TerminalNodeProps) {
     }
   })
 
-  // Notify parent of state changes
+  // Notify parent of state changes - only when status actually changes
+  // Use a ref to track the previous status to avoid excessive updates
+  const prevStatusRef = useRef<TerminalState['status'] | null>(null)
   useEffect(() => {
-    onStateChange?.(terminal.id, state)
+    // Only notify if status has actually changed (not just object reference)
+    if (prevStatusRef.current !== state.status) {
+      prevStatusRef.current = state.status
+      onStateChange?.(terminal.id, state)
+    }
   }, [terminal.id, state, onStateChange])
 
   // Focus name input when editing starts

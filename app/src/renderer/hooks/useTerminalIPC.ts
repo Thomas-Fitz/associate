@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from 'react'
+import { useEffect, useRef, useCallback, useState, useMemo } from 'react'
 import type { TerminalConfig, TerminalState } from '../types/terminal'
 
 interface PtyDataEvent {
@@ -29,6 +29,10 @@ export function useTerminalIPC(terminalId: string, config: TerminalConfig = {}) 
   // Callback refs for data and exit handlers
   const onDataRef = useRef<((data: string) => void) | null>(null)
   const onExitRef = useRef<((exitCode: number, error?: string) => void) | null>(null)
+  
+  // Stable config ref to avoid reconnecting on config object changes
+  const configRef = useRef(config)
+  configRef.current = config
 
   /**
    * Set the data handler (called when PTY outputs data)
@@ -79,13 +83,9 @@ export function useTerminalIPC(terminalId: string, config: TerminalConfig = {}) 
    * Connect to the PTY (spawn a new shell process)
    */
   const connect = useCallback(async (): Promise<void> => {
-    if (state.status === 'running' || isConnecting) {
-      return
-    }
-
     setIsConnecting(true)
     try {
-      await window.electronAPI.pty.create(terminalId, config)
+      await window.electronAPI.pty.create(terminalId, configRef.current)
       setState({ status: 'running' })
     } catch (err) {
       setState({
@@ -96,44 +96,33 @@ export function useTerminalIPC(terminalId: string, config: TerminalConfig = {}) 
     } finally {
       setIsConnecting(false)
     }
-  }, [terminalId, config, state.status, isConnecting])
+  }, [terminalId])
 
   /**
    * Disconnect from the PTY (kill the shell process)
    */
   const disconnect = useCallback(async (): Promise<void> => {
-    if (state.status !== 'running') {
-      return
-    }
-
     try {
       await window.electronAPI.pty.kill(terminalId)
       setState({ status: 'disconnected' })
     } catch (err) {
       console.error('Failed to disconnect terminal:', err)
     }
-  }, [terminalId, state.status])
+  }, [terminalId])
 
   /**
    * Write data to the PTY
    */
   const write = useCallback((data: string): void => {
-    if (state.status !== 'running') {
-      console.warn('Cannot write to terminal that is not running')
-      return
-    }
     window.electronAPI.pty.write(terminalId, data)
-  }, [terminalId, state.status])
+  }, [terminalId])
 
   /**
    * Resize the PTY
    */
   const resize = useCallback((cols: number, rows: number): void => {
-    if (state.status !== 'running') {
-      return
-    }
     window.electronAPI.pty.resize(terminalId, cols, rows)
-  }, [terminalId, state.status])
+  }, [terminalId])
 
   /**
    * Load scrollback from file
@@ -158,7 +147,8 @@ export function useTerminalIPC(terminalId: string, config: TerminalConfig = {}) 
     }
   }, [terminalId])
 
-  return {
+  // Return a memoized object to prevent unnecessary re-renders
+  return useMemo(() => ({
     state,
     isConnecting,
     connect,
@@ -169,5 +159,5 @@ export function useTerminalIPC(terminalId: string, config: TerminalConfig = {}) 
     checkIsRunning,
     setOnData,
     setOnExit
-  }
+  }), [state, isConnecting, connect, disconnect, write, resize, loadScrollback, checkIsRunning, setOnData, setOnExit])
 }

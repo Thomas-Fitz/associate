@@ -543,7 +543,7 @@ export const TerminalQueries = {
   countInZone(zoneId: string): string {
     return `
       MATCH (term:${NodeLabel.Terminal})-[:${RelationType.BelongsTo}]->(z:${NodeLabel.Zone} {id: '${escapeCypherString(zoneId)}'})
-      RETURN count(term) as count
+      RETURN count(term) as terminal_count
     `
   },
 

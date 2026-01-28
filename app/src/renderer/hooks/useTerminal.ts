@@ -86,19 +86,34 @@ export function useTerminal(
   const searchAddonRef = useRef<SearchAddon | null>(null)
   const isMountedRef = useRef(true)
   const isFocusedRef = useRef(false)
+  const hasInitializedRef = useRef(false)
+  const hasLoadedScrollbackRef = useRef(false)
+
+  // Stable refs for callbacks to avoid re-renders
+  const onFocusRef = useRef(onFocus)
+  const onUnreadOutputRef = useRef(onUnreadOutput)
+  onFocusRef.current = onFocus
+  onUnreadOutputRef.current = onUnreadOutput
 
   // State
   const [fontSize, setFontSize] = useState(terminal.metadata.fontSize ?? DEFAULT_FONT_SIZE)
   const [isInitialized, setIsInitialized] = useState(false)
 
-  // IPC hook
+  // IPC hook - stable because of useMemo in useTerminalIPC
   const ipc = useTerminalIPC(terminal.id, terminal.config)
+  
+  // Store IPC functions in refs for stable access in callbacks
+  const ipcRef = useRef(ipc)
+  ipcRef.current = ipc
 
-  // Initialize xterm.js
+  // Initialize xterm.js - only run once per terminal
   useEffect(() => {
-    if (!containerRef.current || xtermRef.current) {
+    const container = containerRef.current
+    if (!container || hasInitializedRef.current) {
       return
     }
+    
+    hasInitializedRef.current = true
 
     const xterm = new Terminal({
       fontSize,
@@ -146,7 +161,7 @@ export function useTerminal(
     xterm.loadAddon(webLinksAddon)
 
     // Open terminal in container
-    xterm.open(containerRef.current)
+    xterm.open(container)
     fitAddon.fit()
 
     // Store refs
@@ -159,21 +174,21 @@ export function useTerminal(
     if (textareaEl) {
       textareaEl.onfocus = () => {
         isFocusedRef.current = true
-        onFocus?.()
+        onFocusRef.current?.()
       }
       textareaEl.onblur = () => {
         isFocusedRef.current = false
       }
     }
 
-    // Handle terminal input → PTY write
+    // Handle terminal input → PTY write (use ref to get current ipc)
     xterm.onData((data: string) => {
-      ipc.write(data)
+      ipcRef.current.write(data)
     })
 
     // Handle terminal resize → PTY resize
     xterm.onResize(({ cols, rows }: { cols: number; rows: number }) => {
-      ipc.resize(cols, rows)
+      ipcRef.current.resize(cols, rows)
     })
 
     setIsInitialized(true)
@@ -181,14 +196,17 @@ export function useTerminal(
     // Cleanup on unmount
     return () => {
       isMountedRef.current = false
+      hasInitializedRef.current = false
+      hasLoadedScrollbackRef.current = false
       xterm.dispose()
       xtermRef.current = null
       fitAddonRef.current = null
       searchAddonRef.current = null
     }
-  }, [containerRef, fontSize, ipc, onFocus])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [terminal.id]) // Only re-run if terminal ID changes
 
-  // Connect IPC data to xterm
+  // Connect IPC data to xterm - set up once when initialized
   useEffect(() => {
     if (!isInitialized) return
 
@@ -196,7 +214,7 @@ export function useTerminal(
       xtermRef.current?.write(data)
       // Trigger unread output callback if terminal is not focused
       if (!isFocusedRef.current) {
-        onUnreadOutput?.()
+        onUnreadOutputRef.current?.()
       }
     })
 
@@ -206,26 +224,28 @@ export function useTerminal(
         : `\r\n\x1b[90mProcess exited with code: ${exitCode}\x1b[0m\r\n`
       xtermRef.current?.write(message)
     })
-  }, [isInitialized, ipc, onUnreadOutput])
+  }, [isInitialized, ipc.setOnData, ipc.setOnExit])
 
-  // Load scrollback and auto-connect
+  // Load scrollback and auto-connect - only run once
   useEffect(() => {
-    if (!isInitialized) return
+    if (!isInitialized || hasLoadedScrollbackRef.current) return
+
+    hasLoadedScrollbackRef.current = true
 
     const init = async () => {
       // Load previous scrollback
-      const scrollback = await ipc.loadScrollback()
+      const scrollback = await ipcRef.current.loadScrollback()
       if (scrollback && xtermRef.current) {
         xtermRef.current.write(scrollback)
       }
 
       // Check if already running
-      const isRunning = await ipc.checkIsRunning()
+      const isRunning = await ipcRef.current.checkIsRunning()
       
       // Auto-connect if enabled and not already running
       if (autoConnect && !isRunning) {
         try {
-          await ipc.connect()
+          await ipcRef.current.connect()
         } catch (err) {
           console.error('Failed to auto-connect terminal:', err)
         }
@@ -233,11 +253,12 @@ export function useTerminal(
     }
 
     init()
-  }, [isInitialized, autoConnect, ipc])
+  }, [isInitialized, autoConnect])
 
   // Fit terminal on container resize
   useEffect(() => {
-    if (!containerRef.current || !fitAddonRef.current) return
+    const container = containerRef.current
+    if (!container || !fitAddonRef.current) return
 
     const resizeObserver = new ResizeObserver(() => {
       // Debounce the fit call
@@ -246,7 +267,7 @@ export function useTerminal(
       })
     })
 
-    resizeObserver.observe(containerRef.current)
+    resizeObserver.observe(container)
 
     return () => {
       resizeObserver.disconnect()
@@ -307,26 +328,26 @@ export function useTerminal(
   }, [])
 
   const paste = useCallback((text: string): void => {
-    ipc.write(text)
-  }, [ipc])
+    ipcRef.current.write(text)
+  }, [])
 
   const clear = useCallback((): void => {
     xtermRef.current?.clear()
     // Also send clear command to shell
     if (process.platform === 'win32') {
-      ipc.write('cls\r')
+      ipcRef.current.write('cls\r')
     } else {
-      ipc.write('clear\r')
+      ipcRef.current.write('clear\r')
     }
-  }, [ipc])
+  }, [])
 
   const focus = useCallback((): void => {
     xtermRef.current?.focus()
   }, [])
 
   const sendInterrupt = useCallback((): void => {
-    ipc.write('\x03') // Ctrl+C
-  }, [ipc])
+    ipcRef.current.write('\x03') // Ctrl+C
+  }, [])
 
   return {
     xterm: xtermRef.current,

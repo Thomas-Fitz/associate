@@ -9,7 +9,7 @@ import {
   parseAGTypeProperties
 } from './database'
 import { NodeLabel, RelationType, RelationProperty } from './graph-schema'
-import { PlanQueries, TaskQueries, DependencyQueries } from './cypher-builder'
+import { PlanQueries, TaskQueries, DependencyQueries, ZoneQueries, MemoryQueries } from './cypher-builder'
 import type {
   Plan,
   PlanStatus,
@@ -19,7 +19,12 @@ import type {
   ListPlansOptions,
   CreateTaskOptions,
   UpdateTaskOptions,
-  PlanWithTasks
+  PlanWithTasks,
+  Zone,
+  ZoneWithContents,
+  PlanInZone,
+  TaskInZone,
+  MemoryInZone
 } from '../renderer/types'
 
 // ============================================================================
@@ -140,6 +145,46 @@ function parseTaskCount(value: unknown): number {
   if (typeof value === 'number') return value
   if (typeof value === 'string') return parseInt(value, 10) || 0
   return 0
+}
+
+/**
+ * Convert AGE result row to Zone object.
+ */
+function rowToZone(row: Record<string, unknown>): Zone {
+  const props = parseAGTypeProperties(row.z || row.zone || row.result)
+  return {
+    id: String(props.id || ''),
+    name: String(props.name || ''),
+    description: String(props.description || ''),
+    metadata: parseMetadata(props.metadata),
+    tags: Array.isArray(props.tags) ? props.tags : [],
+    createdAt: String(props.created_at || props.createdAt || ''),
+    updatedAt: String(props.updated_at || props.updatedAt || ''),
+    planCount: parseTaskCount(row.plan_count),
+    taskCount: parseTaskCount(row.task_count),
+    memoryCount: parseTaskCount(row.memory_count)
+  }
+}
+
+/**
+ * Convert AGE result row to Memory object.
+ */
+function rowToMemory(row: Record<string, unknown>): MemoryInZone {
+  const props = parseAGTypeProperties(row.m || row.memory || row.result)
+  const metadata = parseMetadata(props.metadata)
+  return {
+    id: String(props.id || ''),
+    type: (props.node_type as 'Note' | 'Repository' | 'Memory') || 'Memory',
+    content: String(props.content || ''),
+    metadata,
+    tags: Array.isArray(props.tags) ? props.tags : [],
+    createdAt: String(props.created_at || props.createdAt || ''),
+    updatedAt: String(props.updated_at || props.updatedAt || ''),
+    ui_x: typeof metadata.ui_x === 'number' ? metadata.ui_x : undefined,
+    ui_y: typeof metadata.ui_y === 'number' ? metadata.ui_y : undefined,
+    ui_width: typeof metadata.ui_width === 'number' ? metadata.ui_width : undefined,
+    ui_height: typeof metadata.ui_height === 'number' ? metadata.ui_height : undefined
+  }
 }
 
 // ============================================================================
@@ -411,4 +456,399 @@ export function setupIpcHandlers(): void {
       await executeCypher(query, 'source agtype')
     }
   )
+
+  // --------------------------------------------------------------------------
+  // Zone Handlers
+  // --------------------------------------------------------------------------
+
+  /**
+   * List zones with optional search filter.
+   */
+  ipcMain.handle('db:zones:list', async (_event, options?: { search?: string; limit?: number }): Promise<Zone[]> => {
+    console.log('db:zones:list called with options:', options)
+
+    const query = ZoneQueries.list(options)
+    console.log('Executing query:', query)
+    
+    const rows = await executeCypher<Record<string, unknown>>(
+      query,
+      'z agtype, plan_count agtype, task_count agtype, memory_count agtype'
+    )
+    console.log('Query returned rows:', rows.length)
+
+    return rows.map(row => rowToZone(row))
+  })
+
+  /**
+   * Get a zone by ID with counts.
+   */
+  ipcMain.handle('db:zones:getById', async (_event, zoneId: string): Promise<Zone | null> => {
+    const query = ZoneQueries.getById(zoneId)
+    const rows = await executeCypher<Record<string, unknown>>(
+      query,
+      'z agtype, plan_count agtype, task_count agtype, memory_count agtype'
+    )
+
+    if (rows.length === 0) {
+      return null
+    }
+
+    return rowToZone(rows[0])
+  })
+
+  /**
+   * Get a zone with all its contents (plans with tasks, memories).
+   */
+  ipcMain.handle('db:zones:get', async (_event, zoneId: string): Promise<ZoneWithContents | null> => {
+    // Get the zone
+    const zoneQuery = ZoneQueries.getWithContents(zoneId)
+    const zoneRows = await executeCypher<Record<string, unknown>>(zoneQuery, 'z agtype')
+
+    if (zoneRows.length === 0) {
+      return null
+    }
+
+    const zoneProps = parseAGTypeProperties(zoneRows[0].z || zoneRows[0].zone || zoneRows[0].result)
+    const zone: Zone = {
+      id: String(zoneProps.id || ''),
+      name: String(zoneProps.name || ''),
+      description: String(zoneProps.description || ''),
+      metadata: parseMetadata(zoneProps.metadata),
+      tags: Array.isArray(zoneProps.tags) ? zoneProps.tags : [],
+      createdAt: String(zoneProps.created_at || zoneProps.createdAt || ''),
+      updatedAt: String(zoneProps.updated_at || zoneProps.updatedAt || '')
+    }
+
+    // Get plans with their tasks
+    const plansQuery = ZoneQueries.getPlansWithTasks(zoneId)
+    const planRows = await executeCypher<Record<string, unknown>>(
+      plansQuery,
+      'p agtype, tasks agtype'
+    )
+
+    const plans: PlanInZone[] = planRows.map(row => {
+      const planProps = parseAGTypeProperties(row.p)
+      const planMetadata = parseMetadata(planProps.metadata)
+      
+      // Parse tasks array
+      let tasksData: unknown[] = []
+      if (typeof row.tasks === 'string') {
+        try {
+          tasksData = JSON.parse(row.tasks) || []
+        } catch {
+          tasksData = []
+        }
+      } else if (Array.isArray(row.tasks)) {
+        tasksData = row.tasks
+      }
+
+      const tasks: TaskInZone[] = tasksData
+        .filter((t: unknown) => t && typeof t === 'object' && (t as Record<string, unknown>).task)
+        .map((t: unknown) => {
+          const taskObj = t as Record<string, unknown>
+          const taskProps = parseAGTypeProperties(taskObj.task)
+          const taskMetadata = parseMetadata(taskProps.metadata)
+          
+          return {
+            id: String(taskProps.id || ''),
+            content: String(taskProps.content || ''),
+            status: (taskProps.status as TaskInZone['status']) || 'pending',
+            metadata: {
+              ...taskMetadata,
+              ui_x: typeof taskMetadata.ui_x === 'number' ? taskMetadata.ui_x : undefined,
+              ui_y: typeof taskMetadata.ui_y === 'number' ? taskMetadata.ui_y : undefined,
+              ui_width: typeof taskMetadata.ui_width === 'number' ? taskMetadata.ui_width : undefined,
+              ui_height: typeof taskMetadata.ui_height === 'number' ? taskMetadata.ui_height : undefined
+            },
+            tags: Array.isArray(taskProps.tags) ? taskProps.tags : [],
+            createdAt: String(taskProps.created_at || taskProps.createdAt || ''),
+            updatedAt: String(taskProps.updated_at || taskProps.updatedAt || ''),
+            planId: String(planProps.id || ''),
+            dependsOn: parseAGArray(taskObj.depends_on),
+            blocks: parseAGArray(taskObj.blocks)
+          }
+        })
+
+      return {
+        id: String(planProps.id || ''),
+        name: String(planProps.name || ''),
+        description: String(planProps.description || ''),
+        status: (planProps.status as PlanInZone['status']) || 'draft',
+        metadata: {
+          ...planMetadata,
+          ui_x: typeof planMetadata.ui_x === 'number' ? planMetadata.ui_x : undefined,
+          ui_y: typeof planMetadata.ui_y === 'number' ? planMetadata.ui_y : undefined,
+          ui_width: typeof planMetadata.ui_width === 'number' ? planMetadata.ui_width : undefined,
+          ui_height: typeof planMetadata.ui_height === 'number' ? planMetadata.ui_height : undefined
+        },
+        tags: Array.isArray(planProps.tags) ? planProps.tags : [],
+        createdAt: String(planProps.created_at || planProps.createdAt || ''),
+        updatedAt: String(planProps.updated_at || planProps.updatedAt || ''),
+        tasks
+      }
+    })
+
+    // Get memories
+    const memoriesQuery = ZoneQueries.getMemories(zoneId)
+    const memoryRows = await executeCypher<Record<string, unknown>>(memoriesQuery, 'm agtype')
+    const memories: MemoryInZone[] = memoryRows.map(row => rowToMemory(row))
+
+    return {
+      ...zone,
+      plans,
+      memories,
+      planCount: plans.length,
+      taskCount: plans.reduce((sum, p) => sum + p.tasks.length, 0),
+      memoryCount: memories.length
+    }
+  })
+
+  /**
+   * Create a new zone.
+   */
+  ipcMain.handle('db:zones:create', async (_event, options: { name: string; description?: string; metadata?: Record<string, unknown>; tags?: string[] }): Promise<Zone> => {
+    const zoneId = crypto.randomUUID()
+    const metadata = metadataToJSON(options.metadata || {})
+    const tags = tagsToCypherList(options.tags || [])
+
+    const query = ZoneQueries.create({
+      id: zoneId,
+      name: options.name,
+      description: options.description,
+      metadata,
+      tags
+    })
+
+    const rows = await executeCypher<Record<string, unknown>>(query, 'z agtype')
+    return rowToZone(rows[0])
+  })
+
+  /**
+   * Update a zone.
+   */
+  ipcMain.handle('db:zones:update', async (_event, zoneId: string, options: { name?: string; description?: string; metadata?: Record<string, unknown>; tags?: string[] }): Promise<Zone> => {
+    const now = new Date().toISOString()
+    const sets: string[] = [`z.updated_at = '${now}'`]
+
+    if (options.name !== undefined) {
+      sets.push(`z.name = '${escapeCypherString(options.name)}'`)
+    }
+    if (options.description !== undefined) {
+      sets.push(`z.description = '${escapeCypherString(options.description)}'`)
+    }
+    if (options.metadata !== undefined) {
+      sets.push(`z.metadata = '${metadataToJSON(options.metadata)}'`)
+    }
+    if (options.tags !== undefined) {
+      sets.push(`z.tags = ${tagsToCypherList(options.tags)}`)
+    }
+
+    const query = ZoneQueries.update(zoneId, sets)
+    const rows = await executeCypher<Record<string, unknown>>(query, 'z agtype')
+
+    if (rows.length === 0) {
+      throw new Error(`Zone not found: ${zoneId}`)
+    }
+
+    return rowToZone(rows[0])
+  })
+
+  /**
+   * Delete a zone and all its contents.
+   */
+  ipcMain.handle('db:zones:delete', async (_event, zoneId: string): Promise<void> => {
+    const query = ZoneQueries.delete(zoneId)
+    await executeCypher(query, 'result agtype')
+  })
+
+  // --------------------------------------------------------------------------
+  // Plan CRUD Handlers (for creating plans in zones)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Create a new plan in a zone.
+   */
+  ipcMain.handle('db:plans:create', async (_event, options: { zoneId: string; name: string; description?: string; status?: string; metadata?: Record<string, unknown>; tags?: string[] }): Promise<Plan> => {
+    const client = await getClient()
+
+    try {
+      await client.query('BEGIN')
+
+      const planId = crypto.randomUUID()
+      const metadata = metadataToJSON(options.metadata || {})
+      const tags = tagsToCypherList(options.tags || [])
+
+      // Create the plan
+      const createQuery = PlanQueries.create({
+        id: planId,
+        name: options.name,
+        description: options.description,
+        status: options.status,
+        metadata,
+        tags
+      })
+      await executeCypherInTransaction(client, createQuery, 'p agtype')
+
+      // Link plan to zone
+      const linkQuery = PlanQueries.linkToZone(planId, options.zoneId)
+      const linkRows = await executeCypherInTransaction<Record<string, unknown>>(client, linkQuery, 'p agtype')
+
+      await client.query('COMMIT')
+
+      return rowToPlan(linkRows[0])
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
+  })
+
+  /**
+   * Update a plan.
+   */
+  ipcMain.handle('db:plans:update', async (_event, planId: string, options: { name?: string; description?: string; status?: string; metadata?: Record<string, unknown>; tags?: string[] }): Promise<Plan> => {
+    const now = new Date().toISOString()
+    const sets: string[] = [`p.updated_at = '${now}'`]
+
+    if (options.name !== undefined) {
+      sets.push(`p.name = '${escapeCypherString(options.name)}'`)
+    }
+    if (options.description !== undefined) {
+      sets.push(`p.description = '${escapeCypherString(options.description)}'`)
+    }
+    if (options.status !== undefined) {
+      sets.push(`p.status = '${escapeCypherString(options.status)}'`)
+    }
+    if (options.metadata !== undefined) {
+      sets.push(`p.metadata = '${metadataToJSON(options.metadata)}'`)
+    }
+    if (options.tags !== undefined) {
+      sets.push(`p.tags = ${tagsToCypherList(options.tags)}`)
+    }
+
+    const query = PlanQueries.update(planId, sets)
+    const rows = await executeCypher<Record<string, unknown>>(query, 'p agtype')
+
+    if (rows.length === 0) {
+      throw new Error(`Plan not found: ${planId}`)
+    }
+
+    return rowToPlan(rows[0])
+  })
+
+  /**
+   * Delete a plan and all its tasks.
+   */
+  ipcMain.handle('db:plans:delete', async (_event, planId: string): Promise<void> => {
+    const query = PlanQueries.delete(planId)
+    await executeCypher(query, 'result agtype')
+  })
+
+  /**
+   * Move a plan to a different zone.
+   */
+  ipcMain.handle('db:plans:move', async (_event, planId: string, newZoneId: string): Promise<Plan> => {
+    const query = PlanQueries.moveToZone(planId, newZoneId)
+    const rows = await executeCypher<Record<string, unknown>>(query, 'p agtype')
+
+    if (rows.length === 0) {
+      throw new Error(`Plan not found: ${planId}`)
+    }
+
+    return rowToPlan(rows[0])
+  })
+
+  // --------------------------------------------------------------------------
+  // Memory Handlers
+  // --------------------------------------------------------------------------
+
+  /**
+   * Create a new memory in a zone.
+   */
+  ipcMain.handle('db:memories:create', async (_event, options: { zoneId: string; type: string; content: string; metadata?: Record<string, unknown>; tags?: string[] }): Promise<MemoryInZone> => {
+    const client = await getClient()
+
+    try {
+      await client.query('BEGIN')
+
+      const memoryId = crypto.randomUUID()
+      const metadata = metadataToJSON(options.metadata || {})
+      const tags = tagsToCypherList(options.tags || [])
+
+      // Create the memory
+      const createQuery = MemoryQueries.create({
+        id: memoryId,
+        type: options.type,
+        content: options.content,
+        metadata,
+        tags
+      })
+      await executeCypherInTransaction(client, createQuery, 'm agtype')
+
+      // Link memory to zone
+      const linkQuery = MemoryQueries.linkToZone(memoryId, options.zoneId)
+      const linkRows = await executeCypherInTransaction<Record<string, unknown>>(client, linkQuery, 'm agtype')
+
+      await client.query('COMMIT')
+
+      return rowToMemory(linkRows[0])
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
+  })
+
+  /**
+   * Update a memory.
+   */
+  ipcMain.handle('db:memories:update', async (_event, memoryId: string, options: { content?: string; metadata?: Record<string, unknown>; tags?: string[] }): Promise<MemoryInZone> => {
+    const now = new Date().toISOString()
+    const sets: string[] = [`m.updated_at = '${now}'`]
+
+    if (options.content !== undefined) {
+      sets.push(`m.content = '${escapeCypherString(options.content)}'`)
+    }
+    if (options.metadata !== undefined) {
+      sets.push(`m.metadata = '${metadataToJSON(options.metadata)}'`)
+    }
+    if (options.tags !== undefined) {
+      sets.push(`m.tags = ${tagsToCypherList(options.tags)}`)
+    }
+
+    const query = MemoryQueries.update(memoryId, sets)
+    const rows = await executeCypher<Record<string, unknown>>(query, 'm agtype')
+
+    if (rows.length === 0) {
+      throw new Error(`Memory not found: ${memoryId}`)
+    }
+
+    return rowToMemory(rows[0])
+  })
+
+  /**
+   * Delete a memory.
+   */
+  ipcMain.handle('db:memories:delete', async (_event, memoryId: string): Promise<void> => {
+    const query = MemoryQueries.delete(memoryId)
+    await executeCypher(query, 'result agtype')
+  })
+
+  /**
+   * Link a memory to another node via RELATES_TO.
+   */
+  ipcMain.handle('db:memories:link', async (_event, memoryId: string, targetId: string): Promise<void> => {
+    const query = MemoryQueries.linkTo(memoryId, targetId)
+    await executeCypher(query, 'm agtype')
+  })
+
+  /**
+   * Unlink a memory from a node.
+   */
+  ipcMain.handle('db:memories:unlink', async (_event, memoryId: string, targetId: string): Promise<void> => {
+    const query = MemoryQueries.unlinkFrom(memoryId, targetId)
+    await executeCypher(query, 'm agtype')
+  })
 }

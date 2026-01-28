@@ -6,17 +6,44 @@ import type {
   ListPlansOptions,
   CreateTaskOptions,
   UpdateTaskOptions,
-  PlanWithTasks
+  PlanWithTasks,
+  Zone,
+  ZoneWithContents,
+  MemoryInZone
 } from '../renderer/types'
 
 // Expose database operations to renderer
 const api = {
+  // Zone operations
+  zones: {
+    list: (options?: { search?: string; limit?: number }): Promise<Zone[]> =>
+      ipcRenderer.invoke('db:zones:list', options),
+    get: (zoneId: string): Promise<ZoneWithContents | null> =>
+      ipcRenderer.invoke('db:zones:get', zoneId),
+    getById: (zoneId: string): Promise<Zone | null> =>
+      ipcRenderer.invoke('db:zones:getById', zoneId),
+    create: (options: { name: string; description?: string; metadata?: Record<string, unknown>; tags?: string[] }): Promise<Zone> =>
+      ipcRenderer.invoke('db:zones:create', options),
+    update: (zoneId: string, options: { name?: string; description?: string; metadata?: Record<string, unknown>; tags?: string[] }): Promise<Zone> =>
+      ipcRenderer.invoke('db:zones:update', zoneId, options),
+    delete: (zoneId: string): Promise<void> =>
+      ipcRenderer.invoke('db:zones:delete', zoneId)
+  },
+
   // Plan operations
   plans: {
     list: (options?: ListPlansOptions): Promise<Plan[]> => 
       ipcRenderer.invoke('db:plans:list', options),
     get: (planId: string): Promise<PlanWithTasks | null> => 
-      ipcRenderer.invoke('db:plans:get', planId)
+      ipcRenderer.invoke('db:plans:get', planId),
+    create: (options: { zoneId: string; name: string; description?: string; status?: string; metadata?: Record<string, unknown>; tags?: string[] }): Promise<Plan> =>
+      ipcRenderer.invoke('db:plans:create', options),
+    update: (planId: string, options: { name?: string; description?: string; status?: string; metadata?: Record<string, unknown>; tags?: string[] }): Promise<Plan> =>
+      ipcRenderer.invoke('db:plans:update', planId, options),
+    delete: (planId: string): Promise<void> =>
+      ipcRenderer.invoke('db:plans:delete', planId),
+    move: (planId: string, newZoneId: string): Promise<Plan> =>
+      ipcRenderer.invoke('db:plans:move', planId, newZoneId)
   },
   
   // Task operations
@@ -37,6 +64,20 @@ const api = {
       ipcRenderer.invoke('db:dependencies:create', sourceTaskId, targetTaskId),
     delete: (sourceTaskId: string, targetTaskId: string, relationshipType: 'DEPENDS_ON' | 'BLOCKS' = 'DEPENDS_ON'): Promise<void> => 
       ipcRenderer.invoke('db:dependencies:delete', sourceTaskId, targetTaskId, relationshipType)
+  },
+
+  // Memory operations
+  memories: {
+    create: (options: { zoneId: string; type: string; content: string; metadata?: Record<string, unknown>; tags?: string[] }): Promise<MemoryInZone> =>
+      ipcRenderer.invoke('db:memories:create', options),
+    update: (memoryId: string, options: { content?: string; metadata?: Record<string, unknown>; tags?: string[] }): Promise<MemoryInZone> =>
+      ipcRenderer.invoke('db:memories:update', memoryId, options),
+    delete: (memoryId: string): Promise<void> =>
+      ipcRenderer.invoke('db:memories:delete', memoryId),
+    linkTo: (memoryId: string, targetId: string): Promise<void> =>
+      ipcRenderer.invoke('db:memories:link', memoryId, targetId),
+    unlinkFrom: (memoryId: string, targetId: string): Promise<void> =>
+      ipcRenderer.invoke('db:memories:unlink', memoryId, targetId)
   }
 }
 

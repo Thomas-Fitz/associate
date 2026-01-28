@@ -13,6 +13,7 @@
 
 // Node labels
 export const NodeLabel = {
+  Zone: 'Zone',
   Plan: 'Plan',
   Task: 'Task',
   Memory: 'Memory'
@@ -22,6 +23,8 @@ export type NodeLabelType = (typeof NodeLabel)[keyof typeof NodeLabel]
 
 // Relationship types
 export const RelationType = {
+  /** Plan/Memory belongs to a Zone: (Plan)-[:BELONGS_TO]->(Zone), (Memory)-[:BELONGS_TO]->(Zone) */
+  BelongsTo: 'BELONGS_TO',
   /** Task belongs to a Plan: (Task)-[:PART_OF]->(Plan) */
   PartOf: 'PART_OF',
   /** Task depends on another Task: (Task)-[:DEPENDS_ON]->(Task) */

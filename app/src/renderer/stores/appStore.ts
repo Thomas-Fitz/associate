@@ -1,32 +1,43 @@
 import { create } from 'zustand'
-import type { Plan, TaskInPlan, PlanWithTasks, PlanStatus, EdgeInfo } from '../types'
+import type { Plan, TaskInPlan, PlanWithTasks, PlanStatus, EdgeInfo, Zone, ZoneWithContents } from '../types'
 
 interface AppState {
-  // Plans
+  // Zones (new)
+  zones: Zone[]
+  selectedZoneId: string | null
+  selectedZone: ZoneWithContents | null
+  zonesLoading: boolean
+  zonesError: string | null
+  
+  // Plans (kept for backward compatibility)
   plans: Plan[]
   selectedPlanId: string | null
   selectedPlan: PlanWithTasks | null
   plansLoading: boolean
   plansError: string | null
   
-  // Filtering
+  // Filtering (simplified - search only for zones)
   searchQuery: string
   statusFilter: PlanStatus | 'all'
   
-  // Selection
+  // Selection (expanded for memories)
   selectedTaskIds: Set<string>
+  selectedMemoryIds: Set<string>
   selectedEdgeIds: Set<string>
   
-  // Context menu
+  // Context menu (expanded for zones)
   contextMenu: {
     visible: boolean
     x: number
     y: number
-    canvasX?: number  // Position in canvas/flow coordinates
+    canvasX?: number
     canvasY?: number
-    type: 'canvas' | 'task' | 'edge'
+    type: 'canvas' | 'task' | 'edge' | 'zone' | 'plan' | 'memory'
     taskId?: string
     edgeId?: string
+    zoneId?: string
+    planId?: string
+    memoryId?: string
   } | null
   
   // Dialogs
@@ -39,8 +50,21 @@ interface AppState {
     visible: boolean
     edges: EdgeInfo[]
   } | null
+
+  deleteZoneDialog: {
+    visible: boolean
+    zoneId: string
+    zoneName: string
+  } | null
   
-  // Actions
+  // Zone Actions
+  setZones: (zones: Zone[]) => void
+  setSelectedZoneId: (zoneId: string | null) => void
+  setSelectedZone: (zone: ZoneWithContents | null) => void
+  setZonesLoading: (loading: boolean) => void
+  setZonesError: (error: string | null) => void
+  
+  // Plan Actions
   setPlans: (plans: Plan[]) => void
   setSelectedPlanId: (planId: string | null) => void
   setSelectedPlan: (plan: PlanWithTasks | null) => void
@@ -54,10 +78,14 @@ interface AppState {
   toggleTaskSelection: (taskId: string, addToSelection?: boolean) => void
   clearTaskSelection: () => void
   
+  setSelectedMemoryIds: (ids: Set<string>) => void
+  toggleMemorySelection: (memoryId: string, addToSelection?: boolean) => void
+  clearMemorySelection: () => void
+  
   setSelectedEdgeIds: (ids: Set<string>) => void
   clearEdgeSelection: () => void
   
-  showContextMenu: (x: number, y: number, type: 'canvas' | 'task' | 'edge', taskId?: string, canvasX?: number, canvasY?: number, edgeId?: string) => void
+  showContextMenu: (x: number, y: number, type: 'canvas' | 'task' | 'edge' | 'zone' | 'plan' | 'memory', options?: { taskId?: string; canvasX?: number; canvasY?: number; edgeId?: string; zoneId?: string; planId?: string; memoryId?: string }) => void
   hideContextMenu: () => void
   
   showDeleteDialog: (taskIds: string[]) => void
@@ -65,6 +93,9 @@ interface AppState {
   
   showDeleteEdgeDialog: (edges: EdgeInfo[]) => void
   hideDeleteEdgeDialog: () => void
+
+  showDeleteZoneDialog: (zoneId: string, zoneName: string) => void
+  hideDeleteZoneDialog: () => void
   
   // Task updates
   updateTask: (taskId: string, updates: Partial<TaskInPlan>) => void
@@ -75,6 +106,12 @@ interface AppState {
 
 export const useAppStore = create<AppState>((set, get) => ({
   // Initial state
+  zones: [],
+  selectedZoneId: null,
+  selectedZone: null,
+  zonesLoading: false,
+  zonesError: null,
+  
   plans: [],
   selectedPlanId: null,
   selectedPlan: null,
@@ -85,13 +122,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   statusFilter: 'all',
   
   selectedTaskIds: new Set(),
+  selectedMemoryIds: new Set(),
   selectedEdgeIds: new Set(),
   
   contextMenu: null,
   deleteDialog: null,
   deleteEdgeDialog: null,
+  deleteZoneDialog: null,
   
-  // Actions
+  // Zone Actions
+  setZones: (zones) => set({ zones }),
+  setSelectedZoneId: (zoneId) => set({ selectedZoneId: zoneId }),
+  setSelectedZone: (zone) => set({ selectedZone: zone }),
+  setZonesLoading: (loading) => set({ zonesLoading: loading }),
+  setZonesError: (error) => set({ zonesError: error }),
+  
+  // Plan Actions
   setPlans: (plans) => set({ plans }),
   setSelectedPlanId: (planId) => set({ selectedPlanId: planId }),
   setSelectedPlan: (plan) => set({ selectedPlan: plan }),
@@ -118,12 +164,41 @@ export const useAppStore = create<AppState>((set, get) => ({
   
   clearTaskSelection: () => set({ selectedTaskIds: new Set() }),
   
+  setSelectedMemoryIds: (ids) => set({ selectedMemoryIds: ids }),
+  
+  toggleMemorySelection: (memoryId, addToSelection = false) => {
+    const { selectedMemoryIds } = get()
+    const newSelection = new Set(addToSelection ? selectedMemoryIds : [])
+    
+    if (newSelection.has(memoryId)) {
+      newSelection.delete(memoryId)
+    } else {
+      newSelection.add(memoryId)
+    }
+    
+    set({ selectedMemoryIds: newSelection })
+  },
+  
+  clearMemorySelection: () => set({ selectedMemoryIds: new Set() }),
+  
   setSelectedEdgeIds: (ids) => set({ selectedEdgeIds: ids }),
   
   clearEdgeSelection: () => set({ selectedEdgeIds: new Set() }),
   
-  showContextMenu: (x, y, type, taskId, canvasX, canvasY, edgeId) => set({
-    contextMenu: { visible: true, x, y, type, taskId, canvasX, canvasY, edgeId }
+  showContextMenu: (x, y, type, options = {}) => set({
+    contextMenu: { 
+      visible: true, 
+      x, 
+      y, 
+      type, 
+      taskId: options.taskId, 
+      canvasX: options.canvasX, 
+      canvasY: options.canvasY, 
+      edgeId: options.edgeId,
+      zoneId: options.zoneId,
+      planId: options.planId,
+      memoryId: options.memoryId
+    }
   }),
   
   hideContextMenu: () => set({ contextMenu: null }),
@@ -139,6 +214,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   }),
   
   hideDeleteEdgeDialog: () => set({ deleteEdgeDialog: null }),
+
+  showDeleteZoneDialog: (zoneId, zoneName) => set({
+    deleteZoneDialog: { visible: true, zoneId, zoneName }
+  }),
+
+  hideDeleteZoneDialog: () => set({ deleteZoneDialog: null }),
   
   updateTask: (taskId, updates) => {
     const { selectedPlan } = get()

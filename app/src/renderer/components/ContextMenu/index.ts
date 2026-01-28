@@ -2,3 +2,6 @@ export { ContextMenu, ContextMenuItem, ContextMenuSeparator, ContextMenuSubMenu 
 export { CanvasContextMenu } from './CanvasContextMenu'
 export { TaskContextMenu } from './TaskContextMenu'
 export { EdgeContextMenu } from './EdgeContextMenu'
+export { ZoneContextMenu } from './ZoneContextMenu'
+export { PlanContextMenu } from './PlanContextMenu'
+export { MemoryContextMenu } from './MemoryContextMenu'

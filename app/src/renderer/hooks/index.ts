@@ -1,5 +1,7 @@
 export { useDatabase } from './useDatabase'
 export { usePlans } from './usePlans'
+export { useZones } from './useZones'
+export { useMemories } from './useMemories'
 export { useTasks } from './useTasks'
 export { useSelection } from './useSelection'
 export { useEdges, parseEdgeInfo } from './useEdges'

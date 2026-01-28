@@ -55,13 +55,13 @@ export function PlanningWindow() {
   
   // Handle task context menu
   const handleTaskContextMenu = useCallback((e: React.MouseEvent, taskId: string) => {
-    showContextMenu(e.clientX, e.clientY, 'task', taskId)
+    showContextMenu(e.clientX, e.clientY, 'task', { taskId })
   }, [showContextMenu])
   
   // Handle edge context menu - called by React Flow's onEdgeContextMenu
   const handleEdgeContextMenu = useCallback((e: React.MouseEvent, edge: DependencyEdgeType) => {
     e.preventDefault()
-    showContextMenu(e.clientX, e.clientY, 'edge', undefined, undefined, undefined, edge.id)
+    showContextMenu(e.clientX, e.clientY, 'edge', { edgeId: edge.id })
   }, [showContextMenu])
   
   // Convert tasks to React Flow nodes
@@ -213,9 +213,9 @@ export function PlanningWindow() {
         x: e.clientX,
         y: e.clientY
       })
-      showContextMenu(e.clientX, e.clientY, 'canvas', undefined, canvasPosition.x, canvasPosition.y)
+      showContextMenu(e.clientX, e.clientY, 'canvas', { canvasX: canvasPosition.x, canvasY: canvasPosition.y })
     } else {
-      showContextMenu(e.clientX, e.clientY, 'canvas', undefined)
+      showContextMenu(e.clientX, e.clientY, 'canvas', {})
     }
   }, [showContextMenu])
   
